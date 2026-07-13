@@ -1,0 +1,21 @@
+# Données locales — propres à chaque cible, jamais écrasées par git pull
+flechette/data/
+data/
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.env
+venv/
+flechette-env/
+
+# Mac
+.DS_Store
+
+# IDE
+.vscode/
+.idea/
+
+# Claude Code
+.claude/

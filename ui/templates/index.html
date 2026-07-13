@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Fléchettes</title>
+  <link rel="stylesheet" href="/static/css/style.css" id="theme-css" />
+</head>
+<body>
+  <button id="theme-toggle" onclick="toggleTheme()">🌙 Sombre</button>
+
+  <!-- ===================== ÉCRAN D'ACCUEIL ===================== -->
+  <div id="screen-home" class="screen active">
+    <h1>🎯 Fléchettes</h1>
+
+    <div class="card">
+      <h2>Joueurs de la partie</h2>
+      <div id="players-list"></div>
+
+      <h2>Joueurs enregistrés</h2>
+      <div id="saved-players-list"></div>
+
+      <div class="row">
+        <input id="player-input" type="text" placeholder="Nouveau joueur…" />
+        <button onclick="createPlayer()">Créer</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Mode de jeu</h2>
+      <div class="btn-group" id="mode-select">
+        <button class="mode-btn active" data-mode="501">501</button>
+        <button class="mode-btn" data-mode="301">301</button>
+        <button class="mode-btn" data-mode="701">701</button>
+        <button class="mode-btn" data-mode="cricket">Cricket</button>
+      </div>
+      <div id="x01-options">
+        <label><input type="checkbox" id="double-in" /> Double In</label>
+        <label><input type="checkbox" id="double-out" checked /> Double Out</label>
+      </div>
+      <div id="cricket-options" style="display:none">
+        <label><input type="checkbox" id="cut-throat" /> Cut-throat (celui qui perd prend les points)</label>
+      </div>
+    </div>
+
+    <button class="btn-primary big" onclick="startGame()">Lancer la partie</button>
+    <button class="btn-ghost big" style="margin-top:8px" onclick="showHistory()">Anciennes parties & Stats</button>
+  </div>
+
+  <!-- ===================== ÉCRAN DE JEU ===================== -->
+  <div id="screen-game" class="screen">
+
+    <header class="game-header">
+      <button class="btn-ghost" onclick="archiveAndGoHome()">← Accueil</button>
+      <span id="game-mode-label"></span>
+      <button class="btn-ghost" onclick="undoDart()">↩ Lancer</button>
+    </header>
+
+    <div id="scoreboard"></div>
+
+    <div class="card">
+      <h3>Tour en cours — <span id="current-player-name"></span></h3>
+      <div id="current-throws" class="throws-row"></div>
+      <div class="row">
+        <button class="btn-secondary" onclick="endTurn()">Valider le tour</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>Saisie manuelle</h3>
+      <div class="dartboard-input">
+        <div class="multiplier-row">
+          <button class="mult-btn active" data-mult="1">Simple</button>
+          <button class="mult-btn" data-mult="2">Double</button>
+          <button class="mult-btn" data-mult="3">Triple</button>
+        </div>
+        <div class="sectors-grid">
+          <button class="sector-btn bull" onclick="throwDart(50,0,50,'bull')">Bull</button>
+          <button class="sector-btn outer-bull" onclick="throwDart(25,0,25,'outer_bull')">25</button>
+        </div>
+        <div class="sectors-grid" id="sectors-grid"></div>
+        <button class="sector-btn miss" onclick="throwDart(0,0,0,'miss')">Miss</button>
+      </div>
+    </div>
+
+    <div class="card" id="edit-score-card">
+      <h3>Correction de score</h3>
+      <div id="edit-score-list"></div>
+    </div>
+
+  </div>
+
+  <!-- ===================== ÉCRAN FIN ===================== -->
+  <div id="screen-win" class="screen">
+    <h1>🏆</h1>
+    <h2 id="winner-name"></h2>
+    <p>a gagné !</p>
+    <button class="btn-primary big" onclick="showHome()">Nouvelle partie</button>
+    <button class="btn-ghost big" style="margin-top:8px" onclick="showHistory()">Voir les stats</button>
+  </div>
+
+  <!-- ===================== ÉCRAN HISTORIQUE ===================== -->
+  <div id="screen-history" class="screen">
+
+    <header class="game-header">
+      <button class="btn-ghost" onclick="showHome()">← Accueil</button>
+      <span>Historique & Stats</span>
+      <span></span>
+    </header>
+
+    <!-- Onglets -->
+    <div class="tabs">
+      <button class="tab-btn active" onclick="switchTab('tab-games')">Parties</button>
+      <button class="tab-btn" onclick="switchTab('tab-stats')">Stats joueurs</button>
+    </div>
+
+    <!-- Onglet parties -->
+    <div id="tab-games" class="tab-content active">
+      <div id="games-list"></div>
+    </div>
+
+    <!-- Onglet stats -->
+    <div id="tab-stats" class="tab-content">
+      <div id="stats-list"></div>
+    </div>
+
+  </div>
+
+  <script src="/static/js/app.js"></script>
+</body>
+</html>
