@@ -13,9 +13,16 @@ app = Flask(__name__, static_folder="../ui/static", template_folder="../ui/templ
 
 _game = None
 
-DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data")
+DATA_DIR     = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data")
 PLAYERS_FILE = os.path.join(DATA_DIR, "players.json")
 GAMES_FILE   = os.path.join(DATA_DIR, "games.json")
+
+# Création automatique du dossier data/ et des fichiers s'ils n'existent pas
+os.makedirs(DATA_DIR, exist_ok=True)
+if not os.path.exists(PLAYERS_FILE):
+    json.dump({"players": []}, open(PLAYERS_FILE, "w"))
+if not os.path.exists(GAMES_FILE):
+    json.dump([], open(GAMES_FILE, "w"))
 
 
 # ------------------------------------------------------------------
