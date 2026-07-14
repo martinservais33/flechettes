@@ -50,6 +50,7 @@ def archive_game(game):
         "double_in": getattr(game.rules, "double_in", False),
         "double_out": getattr(game.rules, "double_out", True),
         "players": [p.name for p in game.players],
+        "cut_throat": game.cut_throat,
         "winner": game.winner.name if game.winner else None,
         "turns": [
             {
@@ -84,6 +85,7 @@ def index():
 # ------------------------------------------------------------------
 @app.route("/api/new_game", methods=["POST"])
 def new_game():
+    # Appelé par le bouton "Lancer la partie" dans le navigateur (écran tactile ou téléphone).
     global _game
     data = request.json
     players  = data.get("players", [])
@@ -101,6 +103,8 @@ def new_game():
 
 @app.route("/api/state")
 def state():
+    # Appelé toutes les 2 secondes par chaque appareil connecté (polling) pour rester synchronisé.
+    # Aussi appelé au chargement de la page pour reprendre une partie en cours.
     game, err, code = get_game()
     if err:
         return err, code
@@ -109,6 +113,8 @@ def state():
 
 @app.route("/api/throw", methods=["POST"])
 def throw():
+    # Appelé par un clic sur un secteur dans le navigateur (saisie manuelle),
+    # ou par le code de détection caméra (Phase 3) — même route dans les deux cas.
     game, err, code = get_game()
     if err:
         return err, code
@@ -127,6 +133,8 @@ def throw():
 
 @app.route("/api/end_turn", methods=["POST"])
 def end_turn():
+    # Appelé par le bouton "Valider le tour" dans le navigateur,
+    # utile quand le joueur a lancé moins de 3 flèches (miss, ou flèche tombée).
     game, err, code = get_game()
     if err:
         return err, code
@@ -138,6 +146,7 @@ def end_turn():
 
 @app.route("/api/undo", methods=["POST"])
 def undo():
+    # Appelé si besoin depuis le code (non exposé dans l'UI actuelle — réservé usage futur).
     game, err, code = get_game()
     if err:
         return err, code
@@ -147,6 +156,8 @@ def undo():
 
 @app.route("/api/undo_dart", methods=["POST"])
 def undo_dart():
+    # Appelé par le bouton "↩ Lancer" dans le navigateur.
+    # Fonctionne même si le tour est déjà validé — remonte au joueur précédent.
     game, err, code = get_game()
     if err:
         return err, code
@@ -156,6 +167,7 @@ def undo_dart():
 
 @app.route("/api/set_score", methods=["POST"])
 def set_score():
+    # Appelé par le formulaire "Correction de score" dans le navigateur (X01 uniquement).
     game, err, code = get_game()
     if err:
         return err, code
@@ -179,11 +191,13 @@ def archive():
 # ------------------------------------------------------------------
 @app.route("/api/players", methods=["GET"])
 def get_players():
+    # Appelé au chargement de la page d'accueil pour afficher la liste des joueurs enregistrés.
     return jsonify({"players": load_saved_players()})
 
 
 @app.route("/api/players", methods=["POST"])
 def add_player():
+    # Appelé quand l'utilisateur crée un nouveau joueur depuis l'écran d'accueil.
     name = request.json.get("name", "").strip()
     if not name:
         return jsonify({"error": "Nom vide"}), 400
@@ -196,6 +210,7 @@ def add_player():
 
 @app.route("/api/players/<name>", methods=["DELETE"])
 def delete_player(name):
+    # Appelé par le bouton ✕ sur un joueur enregistré (avec confirmation préalable).
     players = [p for p in load_saved_players() if p != name]
     save_players(players)
     return jsonify({"players": players})
@@ -203,6 +218,7 @@ def delete_player(name):
 
 @app.route("/api/games/<int:game_id>", methods=["DELETE"])
 def delete_game(game_id):
+    # Appelé par le bouton 🗑 sur une partie dans l'écran historique.
     games = [g for g in load_games() if g["id"] != game_id]
     with open(GAMES_FILE, "w") as f:
         json.dump(games, f, indent=2, ensure_ascii=False)
@@ -211,9 +227,49 @@ def delete_game(game_id):
 
 @app.route("/api/games", methods=["DELETE"])
 def delete_all_games():
+    # Appelé par le bouton "Effacer tout l'historique" (double confirmation requise).
     with open(GAMES_FILE, "w") as f:
         json.dump([], f)
     return jsonify({"ok": True})
+
+
+@app.route("/api/resume_game/<int:game_id>", methods=["POST"])
+def resume_game(game_id):
+    # Appelé par le bouton "Reprendre" sur une partie sans gagnant dans l'historique.
+    # Reconstruit la partie en rejouant tous les tours archivés, puis reprend depuis là.
+    global _game
+    record = next((g for g in load_games() if g["id"] == game_id), None)
+    if not record:
+        return jsonify({"error": "Partie non trouvée"}), 404
+    if record.get("winner"):
+        return jsonify({"error": "Partie déjà terminée"}), 400
+
+    _game = Game(
+        record["players"],
+        mode=record["mode"],
+        double_in=record.get("double_in", False),
+        double_out=record.get("double_out", True),
+        cut_throat=record.get("cut_throat", False),
+    )
+
+    # Interleave des tours : p0_tour0, p1_tour0, p0_tour1, p1_tour1, ...
+    player_histories = [t["history"] for t in record["turns"]]
+    max_turns = max((len(h) for h in player_histories), default=0)
+
+    for turn_idx in range(max_turns):
+        for player_idx in range(len(player_histories)):
+            if turn_idx >= len(player_histories[player_idx]):
+                continue
+            result = "added"
+            for dart in player_histories[player_idx][turn_idx]:
+                result = _game.throw(dart)
+                if result in ("win", "turn_end"):
+                    break
+            # Tour < 3 flèches ou tour vide : forcer la fin pour avancer au joueur suivant
+            if result not in ("win", "turn_end"):
+                _game.end_turn()
+
+    return jsonify({"ok": True, "state": _game.state_view()})
 
 
 # ------------------------------------------------------------------
@@ -221,11 +277,13 @@ def delete_all_games():
 # ------------------------------------------------------------------
 @app.route("/api/games")
 def get_games():
+    # Appelé à l'ouverture de l'écran historique pour afficher la liste des parties.
     return jsonify(load_games())
 
 
 @app.route("/api/stats")
 def get_stats():
+    # Appelé à l'ouverture de l'onglet "Stats joueurs" dans l'écran historique.
     games   = load_games()
     players = load_saved_players()
     result  = {}

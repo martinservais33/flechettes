@@ -1,6 +1,7 @@
 from game.player import Player
 from game.rules.x01 import X01
 from game.rules.cricket import Cricket
+from game.rules.clock import Clock
 
 
 class Game:
@@ -23,6 +24,9 @@ class Game:
         elif mode == "cricket":
             self.rules = Cricket(cut_throat=cut_throat)
             self.states = [self.rules.init_player_state() for _ in self.players]
+        elif mode == "clock":
+            self.rules = Clock()
+            self.states = [self.rules.init_player_state() for _ in self.players]
         else:
             raise ValueError(f"Mode inconnu : {mode}")
 
@@ -39,7 +43,7 @@ class Game:
 
         self.turn_throws.append(dart)
 
-        # vérifier la victoire après chaque flèche
+        # vérifier la victoire après chaque flèche (apply_turn rejoue depuis l'état initial du tour)
         if self.mode == "cricket":
             _, result = self.rules.apply_turn(
                 [{"marks": dict(s["marks"]), "score": s["score"]} for s in self.states],
@@ -147,7 +151,7 @@ class Game:
     # Vue de l'état courant (pour l'UI)
     # ------------------------------------------------------------------
     def state_view(self):
-        return {
+        view = {
             "mode": self.mode,
             "cut_throat": self.cut_throat,
             "current_player": self.players[self.current_idx].name,
@@ -162,3 +166,12 @@ class Game:
                 for i, p in enumerate(self.players)
             ],
         }
+        # Pour le mode horloge, expose la cible live du joueur courant
+        # (intègre les lancers en cours du tour, pas encore validés)
+        if self.mode == "clock":
+            live, _ = self.rules.apply_turn(
+                dict(self.states[self.current_idx]),
+                self.turn_throws
+            )
+            view["current_live_state"] = live
+        return view

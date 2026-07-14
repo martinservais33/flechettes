@@ -10,7 +10,28 @@ function showScreen(id) {
   document.querySelectorAll(".screen").forEach(s => s.classList.remove("active"));
   document.getElementById(id).classList.add("active");
 }
-function showHome() { showScreen("screen-home"); }
+async function showHome() {
+  showScreen("screen-home");
+  const res = await api("GET", "/api/state");
+  const card = document.getElementById("resume-card");
+  if (!res.error && !res.winner) {
+    const players = res.players.map(p => p.name).join(" vs ");
+    document.getElementById("resume-info").textContent =
+      `${res.mode.toUpperCase()} — ${players}`;
+    card.style.display = "block";
+  } else {
+    card.style.display = "none";
+  }
+}
+
+async function resumeGame() {
+  const res = await api("GET", "/api/state");
+  if (res.error) return;
+  buildSectorsGrid(res.mode);
+  renderGame(res);
+  document.getElementById("game-mode-label").textContent = res.mode.toUpperCase();
+  showScreen("screen-game");
+}
 
 // ---- Joueurs enregistrés ----
 async function loadSavedPlayers() {
@@ -94,7 +115,7 @@ document.querySelectorAll(".mode-btn").forEach(btn => {
     btn.classList.add("active");
     selectedMode = btn.dataset.mode;
     document.getElementById("x01-options").style.display =
-      selectedMode === "cricket" ? "none" : "flex";
+      (selectedMode === "cricket" || selectedMode === "clock") ? "none" : "flex";
     document.getElementById("cricket-options").style.display =
       selectedMode === "cricket" ? "flex" : "none";
   });
@@ -121,6 +142,12 @@ async function startGame() {
 // ---- Grille secteurs ----
 function buildSectorsGrid(mode) {
   const m = mode || selectedMode;
+  const isClockMode = m === "clock";
+  document.getElementById("manual-input-card").style.display = isClockMode ? "none" : "block";
+  document.getElementById("clock-board-card").style.display  = isClockMode ? "block" : "none";
+  document.getElementById("edit-score-card").style.display   = isClockMode ? "none" : "block";
+  if (isClockMode) return;
+
   const grid = document.getElementById("sectors-grid");
   if (m === "cricket") {
     grid.innerHTML = [15, 16, 17, 18, 19, 20].map(s =>
@@ -217,12 +244,15 @@ function renderGame(state) {
   sb.innerHTML = state.players.map(p => {
     const isActive = p.name === state.current_player;
     if (state.mode === "cricket") return renderCricketCard(p, isActive);
+    if (state.mode === "clock")   return renderClockCard(p, isActive, state.current_live_state);
     return `<div class="player-score-card ${isActive ? "active" : ""}">
       <div class="pname">${p.name}</div>
       <div class="pscore">${p.state.score}</div>
       <div class="last-throws">${renderLastThrows(p.last_throws)}</div>
     </div>`;
   }).join("");
+
+  if (state.mode === "clock") renderClockInput(state);
 
   const throws = state.current_throws;
   document.getElementById("current-throws").innerHTML =
@@ -283,6 +313,115 @@ function renderEditScores(state) {
   ).join("");
 }
 
+// ---- Tour de l'horloge ----
+const CLOCK_SEQ = [1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,"bull"];
+let _clockLiveTarget = 1;
+
+function renderClockCard(p, isActive, liveState) {
+  const isCurrentPlayer = isActive;
+  const idx = (isCurrentPlayer && liveState) ? liveState.target_idx : p.state.target_idx;
+  const safeIdx = Math.min(idx, CLOCK_SEQ.length - 1);
+  const target = CLOCK_SEQ[safeIdx];
+  const label  = target === "bull" ? "BULL" : target;
+  return `<div class="player-score-card clock-card ${isActive ? "active" : ""}">
+    <div class="pname">${p.name}</div>
+    <div class="clock-target-badge">${label}</div>
+    ${renderClockProgress(safeIdx)}
+    <div class="last-throws">${renderLastThrows(p.last_throws)}</div>
+  </div>`;
+}
+
+function renderClockProgress(idx) {
+  return `<div class="clock-progress">` +
+    CLOCK_SEQ.map((s, i) => {
+      const label = s === "bull" ? "B" : s;
+      const cls   = i < idx ? "done" : i === idx ? "current" : "";
+      return `<span class="cp-dot ${cls}">${label}</span>`;
+    }).join("") +
+  `</div>`;
+}
+
+function renderClockInput(state) {
+  const liveIdx    = state.current_live_state ? state.current_live_state.target_idx : 0;
+  const safeIdx    = Math.min(liveIdx, CLOCK_SEQ.length - 1);
+  const target     = CLOCK_SEQ[safeIdx];
+  _clockLiveTarget = target;
+
+  const label = target === "bull" ? "BULL" : target;
+  document.getElementById("clock-target-display").textContent = label;
+  document.getElementById("clock-dartboard-svg").innerHTML = drawClockDartboard(target);
+
+  const btns = document.getElementById("clock-throw-buttons");
+  if (target === "bull") {
+    btns.innerHTML =
+      `<button class="clock-btn miss"   onclick="clockThrow('miss')">Miss</button>
+       <button class="clock-btn bull"   onclick="clockThrow('bull')">Toucher le bull</button>`;
+  } else {
+    btns.innerHTML =
+      `<button class="clock-btn miss"   onclick="clockThrow('miss')">Miss</button>
+       <button class="clock-btn single" onclick="clockThrow('single')">Simple</button>
+       <button class="clock-btn double" onclick="clockThrow('double')">Double ×2</button>
+       <button class="clock-btn triple" onclick="clockThrow('triple')">Triple ×3</button>`;
+  }
+}
+
+function clockThrow(type) {
+  const target = _clockLiveTarget;
+  if (type === "miss")   { throwDart(0, 0, 0, "miss"); return; }
+  if (target === "bull") { throwDart(50, 25, 2, "bull"); return; }
+  const mult = type === "single" ? 1 : type === "double" ? 2 : 3;
+  const zone = type;
+  throwDart(target * mult, target, mult, zone);
+}
+
+function drawClockDartboard(targetSector) {
+  const DB_SECTORS = [20,1,18,4,13,6,10,15,2,17,3,19,7,16,8,11,14,9,12,5];
+  const CX = 200, CY = 200;
+  const R_BULL    = 6,  R_OBULL = 16;
+  const R_TRI_IN  = 90, R_TRI_OUT = 100;
+  const R_DBL_IN  = 147, R_DBL_OUT = 155;
+  const R_LABEL   = 171;
+
+  const toRad = d => d * Math.PI / 180;
+  function arc(r1, r2, a1, a2) {
+    const r1a = toRad(a1), r2a = toRad(a2);
+    const x1 = CX+r1*Math.cos(r1a), y1 = CY+r1*Math.sin(r1a);
+    const x2 = CX+r1*Math.cos(r2a), y2 = CY+r1*Math.sin(r2a);
+    const x3 = CX+r2*Math.cos(r2a), y3 = CY+r2*Math.sin(r2a);
+    const x4 = CX+r2*Math.cos(r1a), y4 = CY+r2*Math.sin(r1a);
+    return `M${x1},${y1} A${r1},${r1} 0 0,1 ${x2},${y2} L${x3},${y3} A${r2},${r2} 0 0,0 ${x4},${y4}Z`;
+  }
+
+  let html = `<svg viewBox="0 0 400 400" xmlns="http://www.w3.org/2000/svg">`;
+  html += `<circle cx="${CX}" cy="${CY}" r="${R_DBL_OUT+16}" fill="#111"/>`;
+
+  DB_SECTORS.forEach((sec, i) => {
+    const a1 = -90 + i*18 - 9, a2 = a1 + 18;
+    const isTarget = sec === targetSector;
+    const even     = i % 2 === 0;
+    const singleC  = isTarget ? "#f39c12" : (even ? "#1c1c1c" : "#f0e0c0");
+    const ringC    = isTarget ? "#e67e22" : (even ? "#c0392b" : "#27ae60");
+    html += `<path d="${arc(R_OBULL, R_TRI_IN,  a1, a2)}" fill="${singleC}" stroke="#000" stroke-width="0.4"/>`;
+    html += `<path d="${arc(R_TRI_IN, R_TRI_OUT, a1, a2)}" fill="${ringC}"   stroke="#000" stroke-width="0.4"/>`;
+    html += `<path d="${arc(R_TRI_OUT, R_DBL_IN, a1, a2)}" fill="${singleC}" stroke="#000" stroke-width="0.4"/>`;
+    html += `<path d="${arc(R_DBL_IN, R_DBL_OUT, a1, a2)}" fill="${ringC}"   stroke="#000" stroke-width="0.4"/>`;
+    const la = toRad(-90 + i*18);
+    const lx = CX + R_LABEL*Math.cos(la), ly = CY + R_LABEL*Math.sin(la);
+    const lSize = isTarget ? 15 : 12;
+    const lFill = isTarget ? "#f39c12" : "#e0e0e0";
+    html += `<text x="${lx.toFixed(1)}" y="${ly.toFixed(1)}" text-anchor="middle" dominant-baseline="middle" font-size="${lSize}" font-weight="${isTarget ? "bold" : "normal"}" fill="${lFill}">${sec}</text>`;
+  });
+
+  const bullTarget = targetSector === "bull";
+  html += `<circle cx="${CX}" cy="${CY}" r="${R_OBULL}" fill="${bullTarget ? "#f39c12" : "#27ae60"}" stroke="#000" stroke-width="0.5"/>`;
+  html += `<circle cx="${CX}" cy="${CY}" r="${R_BULL}"  fill="${bullTarget ? "#e67e22" : "#c0392b"}" stroke="#000" stroke-width="0.5"/>`;
+  if (bullTarget) {
+    html += `<text x="${CX}" y="${CY}" text-anchor="middle" dominant-baseline="middle" font-size="8" font-weight="bold" fill="white">BULL</text>`;
+  }
+  html += `</svg>`;
+  return html;
+}
+
 async function applyScoreEdit(idx) {
   const val = parseInt(document.getElementById(`edit-${idx}`).value);
   if (isNaN(val) || val < 0) return;
@@ -316,8 +455,12 @@ async function loadGames() {
     return;
   }
   el.innerHTML = games.map(g => {
-    const winner = g.winner ? `🏆 ${g.winner}` : "Non terminée";
+    const finished = !!g.winner;
+    const winnerHtml = finished ? `🏆 ${g.winner}` : `<em style="color:var(--muted)">Non terminée</em>`;
     const players = g.players.join(" vs ");
+    const actionBtn = finished
+      ? `<button class="btn-ghost replay-btn" onclick="replayGame(${JSON.stringify(g).split('"').join("'")})">Rejouer avec ces joueurs</button>`
+      : `<button class="btn-secondary replay-btn" onclick="resumeArchivedGame(${g.id})">↩ Reprendre la partie</button>`;
     return `<div class="card game-record" id="game-${g.id}">
       <div class="game-record-header">
         <span class="game-mode-tag">${g.mode.toUpperCase()}</span>
@@ -325,12 +468,19 @@ async function loadGames() {
         <button class="btn-delete-game" onclick="deleteGame(${g.id})">🗑</button>
       </div>
       <div class="game-players">${players}</div>
-      <div class="game-winner">${winner}</div>
-      <button class="btn-ghost replay-btn" onclick="replayGame(${JSON.stringify(g).split('"').join("'")})">
-        Rejouer avec ces joueurs
-      </button>
+      <div class="game-winner">${winnerHtml}</div>
+      ${actionBtn}
     </div>`;
   }).join("") + `<button class="btn-ghost big delete-all-btn" onclick="deleteAllGames()">🗑 Effacer tout l'historique</button>`;
+}
+
+async function resumeArchivedGame(id) {
+  const res = await api("POST", `/api/resume_game/${id}`);
+  if (res.error) { alert(res.error); return; }
+  buildSectorsGrid(res.state.mode);
+  renderGame(res.state);
+  document.getElementById("game-mode-label").textContent = res.state.mode.toUpperCase();
+  showScreen("screen-game");
 }
 
 async function deleteGame(id) {

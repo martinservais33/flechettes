@@ -13,6 +13,13 @@
   <div id="screen-home" class="screen active">
     <h1>🎯 Fléchettes</h1>
 
+    <!-- Carte "reprendre" — visible seulement si une partie est en cours -->
+    <div id="resume-card" class="card resume-card" style="display:none">
+      <h2>Partie en cours</h2>
+      <div id="resume-info" class="resume-info"></div>
+      <button class="btn-primary big" onclick="resumeGame()">↩ Reprendre la partie</button>
+    </div>
+
     <div class="card">
       <h2>Joueurs de la partie</h2>
       <div id="players-list"></div>
@@ -33,6 +40,7 @@
         <button class="mode-btn" data-mode="301">301</button>
         <button class="mode-btn" data-mode="701">701</button>
         <button class="mode-btn" data-mode="cricket">Cricket</button>
+        <button class="mode-btn" data-mode="clock">Horloge</button>
       </div>
       <div id="x01-options">
         <label><input type="checkbox" id="double-in" /> Double In</label>
@@ -51,7 +59,7 @@
   <div id="screen-game" class="screen">
 
     <header class="game-header">
-      <button class="btn-ghost" onclick="archiveAndGoHome()">← Accueil</button>
+      <button class="btn-ghost" onclick="showHome()">← Accueil</button>
       <span id="game-mode-label"></span>
       <button class="btn-ghost" onclick="undoDart()">↩ Lancer</button>
     </header>
@@ -66,7 +74,14 @@
       </div>
     </div>
 
-    <div class="card">
+    <!-- Saisie mode horloge -->
+    <div class="card" id="clock-board-card" style="display:none">
+      <h3>Viser le <span id="clock-target-display" class="clock-target-label">1</span></h3>
+      <div id="clock-dartboard-svg" class="clock-svg-wrap"></div>
+      <div id="clock-throw-buttons" class="clock-buttons"></div>
+    </div>
+
+    <div class="card" id="manual-input-card">
       <h3>Saisie manuelle</h3>
       <div class="dartboard-input">
         <div class="multiplier-row">

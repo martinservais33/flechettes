@@ -229,6 +229,29 @@ h2 { margin-top: 10px; }
 .game-winner { color: var(--accent2); font-weight: 700; }
 .replay-btn { margin-top: 4px; align-self: flex-start; }
 
+/* ---- Carte reprendre partie ---- */
+.resume-card { border: 2px solid var(--accent2); }
+.resume-info { font-size: 1.1rem; font-weight: 600; color: var(--accent2); margin-bottom: 12px; }
+
+/* ---- Tour de l'horloge ---- */
+.clock-card { min-width: 120px; }
+.clock-target-badge { font-size: 2.4rem; font-weight: 900; color: var(--accent2); margin: 6px 0 4px; letter-spacing: 1px; }
+.clock-target-label { color: var(--accent2); font-weight: 800; font-size: 1.2rem; }
+.clock-progress { display: flex; gap: 2px; flex-wrap: wrap; justify-content: center; margin: 6px 0 4px; }
+.cp-dot { font-size: .55rem; width: 15px; height: 15px; border-radius: 3px; display: inline-flex; align-items: center; justify-content: center; background: #e8ecf0; color: var(--muted); }
+.cp-dot.done    { background: var(--green); color: #fff; }
+.cp-dot.current { background: var(--accent2); color: #fff; font-weight: 800; }
+.clock-svg-wrap { display: flex; justify-content: center; margin: 8px 0; }
+.clock-svg-wrap svg { width: 100%; max-width: 320px; height: auto; }
+.clock-buttons { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; margin-top: 10px; }
+.clock-btn { flex: 1; min-width: 80px; padding: 14px 8px; font-size: 1rem; font-weight: 700; border-radius: 10px; border: 2px solid transparent; }
+.clock-btn.miss   { background: #e8ecf0; color: var(--muted); border-color: #ccc; }
+.clock-btn.single { background: #f0f4f8; color: var(--text); border-color: #ccc; }
+.clock-btn.double { background: var(--green); color: #fff; }
+.clock-btn.triple { background: var(--accent2); color: #fff; }
+.clock-btn.bull   { background: var(--accent); color: #fff; flex: 2; }
+.clock-btn:hover  { opacity: .85; }
+
 /* ---- Stats ---- */
 .stats-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 10px; }
 .stat-box { background: #f8fafc; border-radius: 10px; padding: 12px; text-align: center; border: 1px solid #e0e6ed; }
