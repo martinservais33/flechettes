@@ -229,6 +229,16 @@ h2 { margin-top: 10px; }
 .game-winner { color: var(--accent2); font-weight: 700; }
 .replay-btn { margin-top: 4px; align-self: flex-start; }
 
+/* ---- Clavier virtuel ---- */
+.vkb { position: fixed; bottom: 0; left: 0; right: 0; background: #e8ecf0; border-top: 2px solid #ccc; padding: 10px 6px 14px; display: flex; flex-direction: column; gap: 6px; z-index: 2000; }
+.vkb-close { position: absolute; top: 6px; right: 10px; font-size: 1.1rem; color: var(--muted); cursor: pointer; padding: 4px 8px; }
+.vkb-row { display: flex; gap: 4px; justify-content: center; }
+.vkb-key { flex: 1; max-width: 48px; padding: 13px 2px; font-size: .95rem; font-weight: 700; background: #fff; color: var(--text); border: 1px solid #ccc; border-radius: 6px; cursor: pointer; }
+.vkb-key:active { background: var(--accent2); color: #fff; }
+.vkb-bksp { background: #f0f4f8; color: var(--accent); border-color: var(--accent); }
+.vkb-space { flex: 4; max-width: 220px; }
+.vkb-ok { flex: 2; max-width: 120px; background: var(--accent); color: #fff; border-color: var(--accent); font-size: 1rem; }
+
 /* ---- Carte reprendre partie ---- */
 .resume-card { border: 2px solid var(--accent2); }
 .resume-info { font-size: 1.1rem; font-weight: 600; color: var(--accent2); margin-bottom: 12px; }

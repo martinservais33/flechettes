@@ -566,6 +566,52 @@ function toggleTheme() {
   localStorage.setItem("theme", isLight ? "dark" : "light");
 }
 
+// ---- Clavier virtuel ----
+const VKB_ROWS = [
+  ["A","Z","E","R","T","Y","U","I","O","P"],
+  ["Q","S","D","F","G","H","J","K","L"],
+  ["W","X","C","V","B","N","M","⌫"],
+  ["Espace","OK"]
+];
+
+function buildVkb() {
+  const vkb = document.getElementById("vkb");
+  const close = vkb.querySelector(".vkb-close");
+  vkb.innerHTML = "";
+  vkb.appendChild(close);
+  VKB_ROWS.forEach(row => {
+    const div = document.createElement("div");
+    div.className = "vkb-row";
+    row.forEach(k => {
+      const btn = document.createElement("button");
+      btn.textContent = k;
+      btn.className = "vkb-key" +
+        (k === "Espace" ? " vkb-space" : "") +
+        (k === "OK"     ? " vkb-ok"    : "") +
+        (k === "⌫"     ? " vkb-bksp"  : "");
+      btn.addEventListener("mousedown", e => { e.preventDefault(); vkbPress(k); });
+      div.appendChild(btn);
+    });
+    vkb.appendChild(div);
+  });
+}
+
+function vkbPress(key) {
+  const input = document.getElementById("player-input");
+  if      (key === "⌫")      input.value = input.value.slice(0, -1);
+  else if (key === "Espace")  input.value += " ";
+  else if (key === "OK")      { createPlayer(); hideVkb(); }
+  else                         input.value += key;
+}
+
+function showVkb() { document.getElementById("vkb").style.display = "flex"; }
+function hideVkb() { document.getElementById("vkb").style.display = "none"; }
+
+const isKiosk = new URLSearchParams(window.location.search).get("kiosk") === "1";
+if (isKiosk) {
+  document.getElementById("player-input").addEventListener("focus", showVkb);
+}
+
 // ---- Init ----
 // restaurer le thème sauvegardé
 (function() {
@@ -575,6 +621,7 @@ function toggleTheme() {
     document.getElementById("theme-toggle").textContent = "☀️ Clair";
   }
 })();
+buildVkb();
 loadSavedPlayers();
 (async () => {
   const res = await api("GET", "/api/state");
