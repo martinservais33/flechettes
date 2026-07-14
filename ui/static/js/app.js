@@ -589,7 +589,7 @@ function buildVkb() {
         (k === "Espace" ? " vkb-space" : "") +
         (k === "OK"     ? " vkb-ok"    : "") +
         (k === "⌫"     ? " vkb-bksp"  : "");
-      btn.addEventListener("mousedown", e => { e.preventDefault(); vkbPress(k); });
+      btn.addEventListener("pointerdown", e => { e.preventDefault(); vkbPress(k); }, {passive: false});
       div.appendChild(btn);
     });
     vkb.appendChild(div);
@@ -604,8 +604,22 @@ function vkbPress(key) {
   else                         input.value += key;
 }
 
-function showVkb() { document.getElementById("vkb").style.display = "flex"; }
-function hideVkb() { document.getElementById("vkb").style.display = "none"; }
+function showVkb() {
+  document.getElementById("vkb").style.display = "flex";
+  document.getElementById("screen-home").style.paddingBottom = "300px";
+  setTimeout(() => {
+    const input = document.getElementById("player-input");
+    const rect  = input.getBoundingClientRect();
+    const kbTop = window.innerHeight - 300;
+    if (rect.bottom > kbTop - 20) {
+      window.scrollBy({ top: rect.bottom - kbTop + 30, behavior: "smooth" });
+    }
+  }, 60);
+}
+function hideVkb() {
+  document.getElementById("vkb").style.display = "none";
+  document.getElementById("screen-home").style.paddingBottom = "";
+}
 
 const isKiosk = new URLSearchParams(window.location.search).get("kiosk") === "1";
 if (isKiosk) {
