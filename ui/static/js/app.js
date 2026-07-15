@@ -348,6 +348,7 @@ function renderClockInput(state) {
   _clockLiveTarget = target;
 
   const label = target === "bull" ? "BULL" : target;
+  document.getElementById("clock-player-name").textContent = state.current_player;
   document.getElementById("clock-target-display").textContent = label;
   document.getElementById("clock-dartboard-svg").innerHTML = drawClockDartboard(target);
 

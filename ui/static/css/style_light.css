@@ -247,6 +247,7 @@ h2 { margin-top: 10px; }
 .clock-card { min-width: 120px; }
 .clock-target-badge { font-size: 2.4rem; font-weight: 900; color: var(--accent2); margin: 6px 0 4px; letter-spacing: 1px; }
 .clock-target-label { color: var(--accent2); font-weight: 800; font-size: 1.2rem; }
+.clock-player-name  { color: var(--accent);  font-weight: 800; font-size: 1.2rem; }
 .clock-progress { display: flex; gap: 2px; flex-wrap: wrap; justify-content: center; margin: 6px 0 4px; }
 .cp-dot { font-size: .55rem; width: 15px; height: 15px; border-radius: 3px; display: inline-flex; align-items: center; justify-content: center; background: #e8ecf0; color: var(--muted); }
 .cp-dot.done    { background: var(--green); color: #fff; }
