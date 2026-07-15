@@ -233,6 +233,15 @@ def delete_all_games():
     return jsonify({"ok": True})
 
 
+@app.route("/api/exit_kiosk", methods=["POST"])
+def exit_kiosk():
+    # Appelé par le bouton "Quitter l'application" (visible seulement en mode kiosk sur le Pi).
+    # Ferme chromium pour rendre la main au bureau du Pi.
+    import subprocess
+    subprocess.Popen(["pkill", "chromium"])
+    return jsonify({"ok": True})
+
+
 @app.route("/api/resume_game/<int:game_id>", methods=["POST"])
 def resume_game(game_id):
     # Appelé par le bouton "Reprendre" sur une partie sans gagnant dans l'historique.

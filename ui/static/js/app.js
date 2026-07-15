@@ -621,9 +621,15 @@ function hideVkb() {
   document.getElementById("screen-home").style.paddingBottom = "";
 }
 
+async function exitKiosk() {
+  if (!confirm("Fermer l'application et revenir au bureau du Pi ?")) return;
+  await api("POST", "/api/exit_kiosk");
+}
+
 const isKiosk = new URLSearchParams(window.location.search).get("kiosk") === "1";
 if (isKiosk) {
   document.getElementById("player-input").addEventListener("focus", showVkb);
+  document.getElementById("exit-kiosk-btn").style.display = "block";
 }
 
 // ---- Init ----
