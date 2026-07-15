@@ -41,11 +41,19 @@ def load_games():
         return json.load(f)
 
 def archive_game(game):
-    """Sauvegarde la partie dans games.json et retourne son id."""
+    """Sauvegarde la partie dans games.json et retourne son id.
+
+    Si la partie a déjà été archivée (reprise depuis l'historique, ou
+    archivée automatiquement), son enregistrement est mis à jour au lieu
+    d'en créer un doublon.
+    """
     games = load_games()
+    existing_id = getattr(game, "archive_id", None)
+    previous = next((g for g in games if g["id"] == existing_id), None) if existing_id else None
+
     record = {
-        "id": int(time.time() * 1000),
-        "date": datetime.now().strftime("%d/%m/%Y %H:%M"),
+        "id": previous["id"] if previous else int(time.time() * 1000),
+        "date": previous["date"] if previous else datetime.now().strftime("%d/%m/%Y %H:%M"),
         "mode": game.mode,
         "double_in": getattr(game.rules, "double_in", False),
         "double_out": getattr(game.rules, "double_out", True),
@@ -60,10 +68,28 @@ def archive_game(game):
             for i in range(len(game.players))
         ],
     }
+    games = [g for g in games if g["id"] != record["id"]]
     games.insert(0, record)
     with open(GAMES_FILE, "w") as f:
         json.dump(games, f, indent=2, ensure_ascii=False)
+    game.archive_id = record["id"]
     return record["id"]
+
+
+def auto_archive_unfinished(game):
+    """Archive la partie en cours avant qu'elle soit remplacée.
+
+    Ne fait rien si la partie est terminée (déjà archivée à la victoire)
+    ou vierge (aucune flèche lancée). Les flèches du tour en cours sont
+    d'abord intégrées à l'historique pour ne rien perdre.
+    """
+    if game is None or game.winner:
+        return
+    if not (game.turn_throws or any(p.history for p in game.players)):
+        return
+    if game.turn_throws:
+        game.end_turn()
+    archive_game(game)
 
 
 def get_game():
@@ -96,6 +122,9 @@ def new_game():
 
     if len(players) < 1:
         return jsonify({"error": "Au moins 1 joueur requis"}), 400
+
+    # Ne pas perdre une partie entamée : on l'archive avant de la remplacer
+    auto_archive_unfinished(_game)
 
     _game = Game(players, mode=mode, double_in=double_in, double_out=double_out, cut_throat=cut_throat)
     return jsonify({"ok": True, "state": _game.state_view()})
@@ -247,13 +276,18 @@ def resume_game(game_id):
     # Appelé par le bouton "Reprendre" sur une partie sans gagnant dans l'historique.
     # Reconstruit la partie en rejouant tous les tours archivés, puis reprend depuis là.
     global _game
+
+    # Sauvegarder la partie en cours avant de la remplacer
+    # (avant load_games : l'auto-archive peut réécrire games.json)
+    auto_archive_unfinished(_game)
+
     record = next((g for g in load_games() if g["id"] == game_id), None)
     if not record:
         return jsonify({"error": "Partie non trouvée"}), 404
     if record.get("winner"):
         return jsonify({"error": "Partie déjà terminée"}), 400
 
-    _game = Game(
+    resumed = Game(
         record["players"],
         mode=record["mode"],
         double_in=record.get("double_in", False),
@@ -271,12 +305,17 @@ def resume_game(game_id):
                 continue
             result = "added"
             for dart in player_histories[player_idx][turn_idx]:
-                result = _game.throw(dart)
+                result = resumed.throw(dart)
                 if result in ("win", "turn_end"):
                     break
             # Tour < 3 flèches ou tour vide : forcer la fin pour avancer au joueur suivant
             if result not in ("win", "turn_end"):
-                _game.end_turn()
+                resumed.end_turn()
+
+    # Lier la partie à son enregistrement : la prochaine archive le mettra
+    # à jour au lieu de créer un doublon dans l'historique
+    resumed.archive_id = record["id"]
+    _game = resumed
 
     return jsonify({"ok": True, "state": _game.state_view()})
 
