@@ -226,13 +226,16 @@ async function refresh() {
   document.getElementById('phase').textContent = 'État : ' + d.phase;
   document.getElementById('tally').textContent =
     d.scored ? `Précision : ${d.correct}/${d.scored} (${Math.round(100*d.correct/d.scored)}%)` : '';
+  // ne pas écraser la liste pendant qu'on tape dans un champ
+  const active = document.activeElement;
+  if (active && active.tagName === 'INPUT') return;
   document.getElementById('events').innerHTML = d.events.map(e => {
     const t = e.prediction ? e.prediction.throw : null;
     const pred = t ? `${t.multiplier}x${t.sector} — ${t.score} pts (${t.zone})` : 'échec triangulation';
     const coh = e.prediction ? ` · cohérence ${e.prediction.coherence_mm} mm` : '';
     const truth = e.truth !== null
       ? `<span class="truth-ok">réel : ${e.truth}</span>`
-      : `<input id="in${e.id}" placeholder="ex: 3x20"> <button onclick="truth(${e.id})">Valider</button>`;
+      : `<input id="in${e.id}" placeholder="ex: 3x20" onkeydown="if(event.key==='Enter')truth(${e.id})"> <button onclick="truth(${e.id})">Valider</button>`;
     const imgs = Object.keys(e.tips).map(c =>
       `<img src="/event_img/${e.stamp}/${c}">`).join('');
     return `<div class="ev"><span class="pred">${pred}</span>
