@@ -38,19 +38,12 @@ ROTATE_CODES = {90: cv2.ROTATE_90_COUNTERCLOCKWISE, 180: cv2.ROTATE_180, 270: cv
 SETTLE_TICKS = 5          # frames stables consécutives pour valider l'impact
 MOTION_PIXELS = 800       # pixels changés vs référence pour déclencher
 
-SURFACE_FILE = os.path.join(HERE, "surface.json")
-
 app = Flask(__name__)
 
 _frames = {}              # dernière frame redressée par caméra
 _lock = threading.Lock()
 
 state = {"phase": "init", "events": [], "next_id": 1}
-
-# surface_lines[cam] = (a, b) : ligne de surface v = a*u + b (image redressée)
-surface_lines = {}
-if os.path.exists(SURFACE_FILE):
-    surface_lines = {int(k): tuple(v) for k, v in json.load(open(SURFACE_FILE)).items()}
 
 
 def upright(frame, cam):
@@ -118,7 +111,6 @@ def detection_loop():
         inter = max(changed_pixels(grays[c], prev_grays[c]) for c in grays)
         vs_ref = max(changed_pixels(grays[c], ref_grays[c]) for c in grays)
         prev_grays = grays
-        state["signals"] = {"inter": inter, "vs_ref": vs_ref}
 
         if state["phase"] == "attente":
             if vs_ref > MOTION_PIXELS:
@@ -133,28 +125,17 @@ def detection_loop():
             if stable_ticks < SETTLE_TICKS:
                 continue
 
-            # scène stabilisée : classifier ce qui a changé (en couleur)
-            results = {
-                c: extract_impact(ref_frames[c], frames[c], surface_lines.get(c))
-                for c in grays if c in ref_frames
-            }
-            state["last_settle"] = {
-                "time": datetime.now().strftime("%H:%M:%S"),
-                "cams": {str(c): {"kind": r[0], "area": r[2],
-                                  "tip": list(r[1]) if r[1] else None}
-                         for c, r in results.items()},
-            }
+            # scène stabilisée : classifier ce qui a changé
+            results = {c: extract_impact(ref_grays[c], grays[c]) for c in grays}
+            kinds = [r[0] for r in results.values()]
 
-            tips = {c: r[1] for c, r in results.items() if r[0] == "dart"}
-            n_clear = sum(1 for r in results.values() if r[0] == "clear")
-
-            # une seule caméra bruitée ne doit pas annuler l'événement :
-            # le "clear" (retrait des fléchettes) ne gagne qu'en majorité
-            if n_clear >= 2 and len(tips) < 2:
+            if "clear" in kinds:
+                # main / retrait des fléchettes : nouvelle référence, pas d'événement
                 state["phase"] = "attente"
                 ref_frames, ref_grays = frames, grays
                 continue
 
+            tips = {c: r[1] for c, r in results.items() if r[0] == "dart"}
             if len(tips) >= 2:
                 pred = predict(tips)
                 event = {
@@ -188,9 +169,7 @@ def api_status():
         or e["truth"] == str(e["prediction"]["throw"]["score"])
     )
     return jsonify({"phase": state["phase"], "events": state["events"][:10],
-                    "scored": len(done), "correct": correct,
-                    "signals": state.get("signals"),
-                    "last_settle": state.get("last_settle")})
+                    "scored": len(done), "correct": correct})
 
 
 @app.route("/api/truth", methods=["POST"])
@@ -204,41 +183,6 @@ def api_truth():
                 json.dump(e, open(os.path.join(folder, "meta.json"), "w"), indent=2)
             return jsonify({"ok": True})
     return jsonify({"error": "événement inconnu"}), 404
-
-
-@app.route("/surface_img/<int:cam>")
-def surface_img(cam):
-    # Frame live avec la ligne de surface actuelle superposée
-    with _lock:
-        frame = _frames.get(cam)
-    if frame is None:
-        return "pas d'image", 404
-    frame = frame.copy()
-    if cam in surface_lines:
-        a, b = surface_lines[cam]
-        w = frame.shape[1]
-        cv2.line(frame, (0, int(b)), (w - 1, int(a * (w - 1) + b)), (0, 165, 255), 2)
-    _, jpg = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 85])
-    return Response(jpg.tobytes(), mimetype="image/jpeg")
-
-
-@app.route("/api/set_surface", methods=["POST"])
-def api_set_surface():
-    d = request.json
-    (u1, v1), (u2, v2) = d["points"]
-    if abs(u2 - u1) < 5:
-        return jsonify({"error": "points trop proches horizontalement"}), 400
-    a = (v2 - v1) / (u2 - u1)
-    b = v1 - a * u1
-    surface_lines[int(d["cam"])] = (a, b)
-    json.dump({str(k): list(v) for k, v in surface_lines.items()}, open(SURFACE_FILE, "w"), indent=2)
-    return jsonify({"ok": True})
-
-
-@app.route("/api/surface_state")
-def api_surface_state():
-    return jsonify({"cams": CAMERA_INDICES,
-                    "configured": sorted(surface_lines.keys())})
 
 
 @app.route("/event_img/<stamp>/<int:cam>")
@@ -269,16 +213,7 @@ def page():
  .truth-ok { color:#27ae60; font-weight:bold; }
 </style></head><body>
 <h1>🎯 Détection live</h1>
-<div class="ev" id="surfacebox">
- <b>📐 Ligne de surface</b> <span id="surfstate" style="color:#8892a4"></span>
- <div style="color:#8892a4;font-size:.85rem">Pour chaque caméra : clique 2 points LE LONG de la surface
- de la cible (le bord où les pointes se plantent). La détection ne regarde que la bande juste au-dessus
- de cette ligne — indispensable pour bien localiser les pointes.</div>
- <button onclick="toggleSurface()" id="surfbtn">Régler</button>
- <div class="imgs" id="surfimgs" style="display:flex;flex-wrap:wrap;gap:8px"></div>
-</div>
 <div id="phase"></div>
-<div id="lastsettle" style="text-align:center;color:#8892a4;font-size:.85rem"></div>
 <div id="tally"></div>
 <div class="muted" style="color:#8892a4;text-align:center">
  Lance des fléchettes ! Chaque impact détecté apparaît ici avec le score prédit.<br>
@@ -288,13 +223,7 @@ def page():
 <script>
 async function refresh() {
   const d = await (await fetch('/api/status')).json();
-  let ph = 'État : ' + d.phase;
-  if (d.signals) ph += ` · mouvement ${d.signals.inter}px · vs référence ${d.signals.vs_ref}px`;
-  document.getElementById('phase').textContent = ph;
-  document.getElementById('lastsettle').textContent = d.last_settle
-    ? `Dernière analyse ${d.last_settle.time} : ` + Object.entries(d.last_settle.cams).map(
-        ([c, r]) => `cam${c}=${r.kind}(${r.area}px)`).join(' · ')
-    : '';
+  document.getElementById('phase').textContent = 'État : ' + d.phase;
   document.getElementById('tally').textContent =
     d.scored ? `Précision : ${d.correct}/${d.scored} (${Math.round(100*d.correct/d.scored)}%)` : '';
   // ne pas écraser la liste pendant qu'on tape dans un champ
@@ -321,41 +250,6 @@ async function truth(id) {
     body: JSON.stringify({id: id, truth: v})});
   refresh();
 }
-
-// ---- Réglage de la ligne de surface ----
-let surfOpen = false, surfClicks = {};
-async function surfaceState() {
-  const d = await (await fetch('/api/surface_state')).json();
-  const missing = d.cams.filter(c => !d.configured.includes(c));
-  document.getElementById('surfstate').textContent = missing.length
-    ? `⚠️ à régler : caméras ${missing.join(', ')}` : '✓ les ' + d.cams.length + ' caméras sont réglées';
-  return d;
-}
-async function toggleSurface() {
-  surfOpen = !surfOpen;
-  document.getElementById('surfbtn').textContent = surfOpen ? 'Fermer' : 'Régler';
-  if (!surfOpen) { document.getElementById('surfimgs').innerHTML = ''; return; }
-  const d = await surfaceState();
-  surfClicks = {};
-  document.getElementById('surfimgs').innerHTML = d.cams.map(c => `
-    <div><div>Caméra ${c} — clique 2 points sur la surface</div>
-    <img id="surf${c}" src="/surface_img/${c}?t=${Date.now()}" style="width:280px;cursor:crosshair"
-         onclick="surfClick(event, ${c}, this)"></div>`).join('');
-}
-async function surfClick(ev, cam, img) {
-  const rect = img.getBoundingClientRect();
-  const s = img.naturalWidth / rect.width;
-  (surfClicks[cam] = surfClicks[cam] || []).push(
-    [(ev.clientX-rect.left)*s, (ev.clientY-rect.top)*s]);
-  if (surfClicks[cam].length === 2) {
-    await fetch('/api/set_surface', {method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({cam: cam, points: surfClicks[cam]})});
-    surfClicks[cam] = [];
-    img.src = '/surface_img/' + cam + '?t=' + Date.now();  // montre la ligne
-    surfaceState();
-  }
-}
-surfaceState();
 setInterval(refresh, 1500);
 refresh();
 </script></body></html>"""
