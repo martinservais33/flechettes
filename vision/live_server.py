@@ -20,6 +20,7 @@ import time
 from datetime import datetime
 
 import cv2
+import numpy as np
 from flask import Flask, Response, jsonify, request
 
 from board import score_from_point
@@ -37,6 +38,9 @@ ROTATE_CODES = {90: cv2.ROTATE_90_COUNTERCLOCKWISE, 180: cv2.ROTATE_180, 270: cv
 
 SETTLE_TICKS = 5          # frames stables consécutives pour valider l'impact
 MOTION_PIXELS = 800       # pixels changés vs référence pour déclencher
+MAX_THROW_TICKS = 8       # frames instables max pour un vrai lancer :
+                          # une fléchette plante en 1-2 frames, une main
+                          # (récupération, passage) bouge bien plus longtemps
 
 SURFACE_FILE = os.path.join(HERE, "surface.json")
 
@@ -51,6 +55,24 @@ state = {"phase": "init", "events": [], "next_id": 1}
 surface_lines = {}
 if os.path.exists(SURFACE_FILE):
     surface_lines = {int(k): tuple(v) for k, v in json.load(open(SURFACE_FILE)).items()}
+
+# rois[cam] = (x1, y1, x2, y2) : zone de détection (image redressée).
+# Tout ce qui est hors du cadre est invisible pour la détection — personnes
+# qui passent, arrière-plan vivant, etc.
+ROI_FILE = os.path.join(HERE, "roi.json")
+rois = {}
+if os.path.exists(ROI_FILE):
+    rois = {int(k): tuple(v) for k, v in json.load(open(ROI_FILE)).items()}
+
+
+def apply_roi(gray, cam):
+    roi = rois.get(cam)
+    if roi is None:
+        return gray
+    x1, y1, x2, y2 = roi
+    out = np.zeros_like(gray)
+    out[y1:y2, x1:x2] = gray[y1:y2, x1:x2]
+    return out
 
 
 def upright(frame, cam):
@@ -75,7 +97,7 @@ def capture_loop(index):
 def grab_grays():
     with _lock:
         frames = {c: _frames[c].copy() for c in CAMERA_INDICES if c in _frames}
-    return frames, {c: preprocess(f) for c, f in frames.items()}
+    return frames, {c: apply_roi(preprocess(f), c) for c, f in frames.items()}
 
 
 DOUBTFUL_MM = 20.0   # au-delà : probablement une main, pas une fléchette
@@ -132,13 +154,23 @@ def detection_loop():
             if vs_ref > MOTION_PIXELS:
                 state["phase"] = "mouvement"
                 stable_ticks = 0
+                unstable_ticks = 0
 
         elif state["phase"] == "mouvement":
             if inter < SETTLE_PIXELS:
                 stable_ticks += 1
             else:
                 stable_ticks = 0
+                unstable_ticks += 1
             if stable_ticks < SETTLE_TICKS:
+                continue
+
+            # Mouvement trop long pour un lancer (main, personne qui passe) :
+            # on met à jour la référence sans créer d'événement
+            if unstable_ticks > MAX_THROW_TICKS:
+                print(f"mouvement long ({unstable_ticks} frames instables) : ignoré")
+                state["phase"] = "attente"
+                ref_frames, ref_grays = frames, grays
                 continue
 
             # scène stabilisée : classifier ce qui a changé
@@ -238,6 +270,39 @@ def api_surface_state():
     return jsonify({"cams": CAMERA_INDICES, "configured": sorted(surface_lines.keys())})
 
 
+@app.route("/roi_img/<int:cam>")
+def roi_img(cam):
+    # Frame live avec le cadre de détection superposé
+    with _lock:
+        frame = _frames.get(cam)
+    if frame is None:
+        return "pas d'image", 404
+    frame = frame.copy()
+    if cam in rois:
+        x1, y1, x2, y2 = rois[cam]
+        cv2.rectangle(frame, (x1, y1), (x2, y2), (80, 220, 80), 2)
+    _, jpg = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 85])
+    return Response(jpg.tobytes(), mimetype="image/jpeg")
+
+
+@app.route("/api/set_roi", methods=["POST"])
+def api_set_roi():
+    d = request.json
+    (u1, v1), (u2, v2) = d["points"]
+    x1, x2 = sorted((int(u1), int(u2)))
+    y1, y2 = sorted((int(v1), int(v2)))
+    if x2 - x1 < 40 or y2 - y1 < 40:
+        return jsonify({"error": "cadre trop petit"}), 400
+    rois[int(d["cam"])] = (x1, y1, x2, y2)
+    json.dump({str(k): list(v) for k, v in rois.items()}, open(ROI_FILE, "w"), indent=2)
+    return jsonify({"ok": True})
+
+
+@app.route("/api/roi_state")
+def api_roi_state():
+    return jsonify({"cams": CAMERA_INDICES, "configured": sorted(rois.keys())})
+
+
 @app.route("/event_img/<stamp>/<int:cam>")
 def event_img(stamp, cam):
     path = os.path.join(DATASET_DIR, stamp, f"cam{cam}_annot.jpg")
@@ -275,6 +340,14 @@ def page():
  (toujours sous la ligne) et à valider la pointe.</div>
  <button onclick="toggleSurface()" id="surfbtn">Régler</button>
  <div id="surfimgs" style="display:flex;flex-wrap:wrap;gap:8px"></div>
+</div>
+<div class="ev">
+ <b>🔲 Zone de détection</b> <span id="roistate" style="color:#8892a4"></span>
+ <div style="color:#8892a4;font-size:.85rem">Pour chaque caméra : clique le coin HAUT-GAUCHE puis le coin
+ BAS-DROIT d'un cadre autour de la cible et des fléchettes. Tout ce qui est hors du cadre est ignoré
+ (personnes qui passent, arrière-plan).</div>
+ <button onclick="toggleRoi()" id="roibtn">Régler</button>
+ <div id="roiimgs" style="display:flex;flex-wrap:wrap;gap:8px"></div>
 </div>
 <div id="phase"></div>
 <div id="tally"></div>
@@ -348,7 +421,43 @@ async function surfClick(ev, cam, img) {
     surfaceState();
   }
 }
+// ---- Réglage de la zone de détection ----
+let roiOpen = false, roiClicks = {};
+async function roiState() {
+  const d = await (await fetch('/api/roi_state')).json();
+  const missing = d.cams.filter(c => !d.configured.includes(c));
+  document.getElementById('roistate').textContent = missing.length
+    ? '⚠️ à régler : caméras ' + missing.join(', ')
+    : '✓ les ' + d.cams.length + ' caméras sont réglées';
+  return d;
+}
+async function toggleRoi() {
+  roiOpen = !roiOpen;
+  document.getElementById('roibtn').textContent = roiOpen ? 'Fermer' : 'Régler';
+  if (!roiOpen) { document.getElementById('roiimgs').innerHTML = ''; return; }
+  const d = await roiState();
+  roiClicks = {};
+  document.getElementById('roiimgs').innerHTML = d.cams.map(c => `
+    <div><div>Caméra ${c} — coin haut-gauche puis bas-droit</div>
+    <img id="roi${c}" src="/roi_img/${c}?t=${Date.now()}" style="width:280px;cursor:crosshair"
+         onclick="roiClick(event, ${c}, this)"></div>`).join('');
+}
+async function roiClick(ev, cam, img) {
+  const rect = img.getBoundingClientRect();
+  const s = img.naturalWidth / rect.width;
+  (roiClicks[cam] = roiClicks[cam] || []).push(
+    [(ev.clientX-rect.left)*s, (ev.clientY-rect.top)*s]);
+  if (roiClicks[cam].length === 2) {
+    const r = await (await fetch('/api/set_roi', {method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({cam: cam, points: roiClicks[cam]})})).json();
+    roiClicks[cam] = [];
+    if (r.error) { alert(r.error); return; }
+    img.src = '/roi_img/' + cam + '?t=' + Date.now();
+    roiState();
+  }
+}
 surfaceState();
+roiState();
 setInterval(refresh, 1500);
 refresh();
 </script></body></html>"""

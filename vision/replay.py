@@ -27,10 +27,26 @@ import numpy as np
 from detector import MIN_DART_AREA, extract_impact, preprocess
 
 # lignes de surface v = a*u + b par caméra (surface.json à côté de ce script)
-SURFACE_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "surface.json")
+HERE = os.path.dirname(os.path.abspath(__file__))
+SURFACE_FILE = os.path.join(HERE, "surface.json")
 SURFACE = {}
 if os.path.exists(SURFACE_FILE):
     SURFACE = {k: tuple(v) for k, v in json.load(open(SURFACE_FILE)).items()}
+
+# zones de détection (roi.json), mêmes réglages que le serveur live
+ROI_FILE = os.path.join(HERE, "roi.json")
+ROIS = {}
+if os.path.exists(ROI_FILE):
+    ROIS = {k: tuple(v) for k, v in json.load(open(ROI_FILE)).items()}
+
+
+def apply_roi(gray, roi):
+    if roi is None:
+        return gray
+    x1, y1, x2, y2 = roi
+    out = np.zeros_like(gray)
+    out[y1:y2, x1:x2] = gray[y1:y2, x1:x2]
+    return out
 
 ORANGE = (0, 165, 255)
 GREEN = (80, 220, 80)
@@ -51,9 +67,10 @@ def erase_burned_circle(after, before, meta, cam):
     return out
 
 
-def debug_sheet(before, after, line=None):
+def debug_sheet(before, after, line=None, roi=None):
     """Rejoue extract_impact et rend la planche [après | masque | analyse]."""
-    ref_gray, cur_gray = preprocess(before), preprocess(after)
+    ref_gray = apply_roi(preprocess(before), roi)
+    cur_gray = apply_roi(preprocess(after), roi)
     kind, tip, area = extract_impact(ref_gray, cur_gray, line)
 
     # reconstruire le masque comme dans extract_impact (pour l'afficher)
@@ -77,6 +94,8 @@ def debug_sheet(before, after, line=None):
         a, b = line
         w = analysis.shape[1]
         cv2.line(analysis, (0, int(b)), (w - 1, int(a * (w - 1) + b)), BLUE, 1)
+    if roi is not None:
+        cv2.rectangle(analysis, tuple(roi[:2]), tuple(roi[2:]), GREEN, 1)
     if tip is not None:
         cv2.circle(analysis, tuple(int(round(x)) for x in tip), 12, ORANGE, 2)
     cv2.putText(analysis, f"{kind} (aire {area})", (8, 24),
@@ -111,7 +130,7 @@ def main(dataset_dir, out_dir):
             if not os.path.exists(os.path.join(folder, f"cam{cam}_annot.jpg")):
                 after = erase_burned_circle(after, before, meta, cam)
 
-            sheet, kind, tip, area = debug_sheet(before, after, SURFACE.get(cam))
+            sheet, kind, tip, area = debug_sheet(before, after, SURFACE.get(cam), ROIS.get(cam))
             cv2.imwrite(os.path.join(out_dir, f"{stamp}_cam{cam}.jpg"), sheet)
             cam_summaries.append(f"cam{cam}: {kind} ({area}px)")
 
