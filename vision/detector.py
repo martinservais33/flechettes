@@ -19,6 +19,7 @@ COLOR_THRESHOLD  = 20      # intensité mini (max des canaux BGR) pour la silhou
                            # plus sensible que le gris : le fût argenté d'une
                            # fléchette disparaît en niveaux de gris
 MIN_DART_AREA    = 60      # blob plus petit = bruit
+BIG_BLOB_AREA    = 800     # blob "taille empennage" (règle du retrait)
 MAX_DART_AREA    = 9000    # blob plus grand = main / gros changement
 CLEAR_AREA       = 15000   # surface totale changée -> retrait des fléchettes
 SETTLE_PIXELS    = 400     # nb de pixels changés entre 2 frames consécutives
@@ -87,9 +88,12 @@ def extract_impact(reference_bgr, settled_bgr, line=None):
 
     blobs = [c for c in contours if cv2.contourArea(c) >= MIN_DART_AREA]
     total_area = int(sum(cv2.contourArea(c) for c in blobs))
-    # Retrait des fléchettes : perturbation massive OU plusieurs silhouettes
-    # d'un coup (chaque fléchette retirée "disparaît" de la référence)
-    if total_area > CLEAR_AREA or len(blobs) >= 3:
+    # Retrait des fléchettes : perturbation massive OU plusieurs GROSSES
+    # silhouettes d'un coup (chaque fléchette retirée "disparaît" de la
+    # référence). Seuls les blobs taille empennage comptent : une fléchette
+    # seule se fragmente souvent en petits morceaux, ce n'est pas un retrait.
+    big_blobs = sum(1 for c in blobs if cv2.contourArea(c) >= BIG_BLOB_AREA)
+    if total_area > CLEAR_AREA or big_blobs >= 3:
         return "clear", None, total_area
     if not blobs or max(cv2.contourArea(c) for c in blobs) > MAX_DART_AREA:
         return ("clear", None, total_area) if blobs else ("none", None, 0)
