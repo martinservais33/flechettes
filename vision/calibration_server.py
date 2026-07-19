@@ -31,6 +31,13 @@ from test_cameras import open_camera
 HERE = os.path.dirname(os.path.abspath(__file__))
 POINTS_FILE = os.path.join(HERE, "calibration_points.json")
 CALIB_FILE = os.path.join(HERE, "calibration.json")
+ROTATIONS_FILE = os.path.join(HERE, "rotations.json")
+
+ROTATE_CODES = {
+    90: cv2.ROTATE_90_COUNTERCLOCKWISE,
+    180: cv2.ROTATE_180,
+    270: cv2.ROTATE_90_CLOCKWISE,
+}
 
 CAM_R_INIT = 260.0  # mm : distance initiale supposée caméra-centre
 
@@ -40,10 +47,23 @@ _frames = {}          # dernière frame live par caméra
 _captured = {}        # frames figées de la dernière capture
 _lock = threading.Lock()
 
-# clicks[point_id][cam] = [u, v]
+# clicks[point_id][cam] = [u, v]  (coordonnées dans l'image REDRESSÉE)
 clicks = {}
 if os.path.exists(POINTS_FILE):
     clicks = json.load(open(POINTS_FILE))
+
+# rotations[cam] = 0 | 90 | 180 | 270 (degrés anti-horaires pour redresser l'image)
+rotations = {}
+if os.path.exists(ROTATIONS_FILE):
+    rotations = {int(k): v for k, v in json.load(open(ROTATIONS_FILE)).items()}
+
+
+def upright(frame, cam):
+    """Redresse la frame selon la rotation configurée pour cette caméra."""
+    rot = rotations.get(cam, 0)
+    if rot in ROTATE_CODES:
+        return cv2.rotate(frame, ROTATE_CODES[rot])
+    return frame
 
 
 def capture_loop(index):
@@ -69,6 +89,7 @@ def api_points():
         "points": [{"id": p[0], "label": p[1]} for p in CALIB_POINTS],
         "cams": CAMERA_INDICES,
         "clicks": clicks,
+        "rotations": {str(k): v for k, v in rotations.items()},
         "calibrated": os.path.exists(CALIB_FILE),
     })
 
@@ -90,8 +111,21 @@ def img(cam):
         frame = _captured.get(cam)
     if frame is None:
         return "pas de capture", 404
+    frame = upright(frame, cam)
     _, jpg = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 90])
     return Response(jpg.tobytes(), mimetype="image/jpeg")
+
+
+@app.route("/api/rotate", methods=["POST"])
+def api_rotate():
+    # Changer la rotation invalide les clics déjà faits pour cette caméra
+    cam = int(request.json["cam"])
+    rotations[cam] = int(request.json["rotation"])
+    json.dump({str(k): v for k, v in rotations.items()}, open(ROTATIONS_FILE, "w"), indent=2)
+    for pts in clicks.values():
+        pts.pop(str(cam), None)
+    json.dump(clicks, open(POINTS_FILE, "w"), indent=2)
+    return jsonify({"ok": True})
 
 
 @app.route("/api/click", methods=["POST"])
@@ -127,11 +161,17 @@ def api_fit():
 
         a = math.radians(sector_center_angle(int(init_sectors[str(cam)])))
         cx, cy = CAM_R_INIT * math.cos(a), CAM_R_INIT * math.sin(a)
-        phi = math.atan2(-cy, -cx)          # pointe vers le centre
-        init = [cx, cy, phi, 460.0, 320.0]  # f pour ~70° de champ en 640px
+        phi = math.atan2(-cy, -cx)  # pointe vers le centre
+
+        # largeur de l'image redressée pour initialiser u0 au centre
+        with _lock:
+            frame = _captured.get(cam, _frames.get(cam))
+        width = upright(frame, cam).shape[1] if frame is not None else 640
+        init = [cx, cy, phi, width * 0.72, width / 2]  # f pour ~70° de champ
 
         params, rms = fit_camera(obs, init)
-        result[str(cam)] = {"params": params, "rms_px": round(rms, 2), "n_points": len(obs)}
+        result[str(cam)] = {"params": params, "rms_px": round(rms, 2), "n_points": len(obs),
+                            "rotation": rotations.get(cam, 0)}
 
     json.dump({"cams": result, "date": time.strftime("%Y-%m-%d %H:%M")},
               open(CALIB_FILE, "w"), indent=2)
@@ -186,8 +226,13 @@ def page():
 <h1>🎯 Calibration des caméras</h1>
 
 <div class="step">
- <b>1. Position approximative des caméras</b>
- <div class="muted">Pour chaque caméra : au-dessus de quel secteur est-elle fixée ? (précision sans importance)</div>
+ <b>1. Orientation et position des caméras</b>
+ <div class="muted">Clique 🔄 Aperçu, puis règle la rotation de chaque caméra jusqu'à ce que l'image soit DROITE
+ (la surface de la cible en bas, l'espace au-dessus en haut). Indique aussi au-dessus de quel secteur
+ chaque caméra est fixée (précision sans importance).<br>
+ ⚠️ Changer la rotation efface les clics déjà faits pour cette caméra.</div>
+ <button class="ghost" onclick="previewOrient()">🔄 Aperçu</button>
+ <div class="imgs" id="orientimgs"></div>
  <div id="initsel"></div>
 </div>
 
@@ -217,15 +262,37 @@ def page():
 <script>
 let CAMS = [], POINTS = [], CLICKS = {}, selected = null, testCols = {};
 
+let ROTS = {};
 async function load() {
   const d = await (await fetch('/api/points')).json();
-  CAMS = d.cams; POINTS = d.points; CLICKS = d.clicks;
+  CAMS = d.cams; POINTS = d.points; CLICKS = d.clicks; ROTS = d.rotations;
   document.getElementById('initsel').innerHTML = CAMS.map(c =>
-    `Caméra ${c} : <select id="init${c}">` +
+    `<div style="margin:6px 0">Caméra ${c} — rotation :
+    <select id="rot${c}" onchange="setRotation(${c})">` +
+    [0,90,180,270].map(r =>
+      `<option value="${r}" ${(ROTS[c]||0)==r?'selected':''}>${r}°</option>`).join('') +
+    `</select> &nbsp; secteur : <select id="init${c}">` +
     [20,1,18,4,13,6,10,15,2,17,3,19,7,16,8,11,14,9,12,5].map(s =>
       `<option value="${s}">${s}</option>`).join('') +
-    `</select> &nbsp;`).join('');
+    `</select></div>`).join('');
   renderPoints();
+}
+async function setRotation(cam) {
+  const rot = document.getElementById('rot'+cam).value;
+  await fetch('/api/rotate', {method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({cam: cam, rotation: rot})});
+  const d = await (await fetch('/api/points')).json();
+  CLICKS = d.clicks;
+  renderPoints();
+  // rafraîchir l'aperçu avec la nouvelle rotation
+  const img = document.getElementById('orient'+cam);
+  if (img) img.src = '/img/' + cam + '?t=' + Date.now();
+}
+async function previewOrient() {
+  const r = await (await fetch('/api/capture', {method:'POST'})).json();
+  document.getElementById('orientimgs').innerHTML = CAMS.map(c => `
+    <div class="imgwrap"><div>Caméra ${c}</div>
+      <img id="orient${c}" src="/img/${c}?t=${r.t}"></div>`).join('');
 }
 function renderPoints() {
   document.getElementById('pointlist').innerHTML = POINTS.map(p => {
