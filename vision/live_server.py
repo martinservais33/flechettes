@@ -118,6 +118,7 @@ def detection_loop():
         inter = max(changed_pixels(grays[c], prev_grays[c]) for c in grays)
         vs_ref = max(changed_pixels(grays[c], ref_grays[c]) for c in grays)
         prev_grays = grays
+        state["signals"] = {"inter": inter, "vs_ref": vs_ref}
 
         if state["phase"] == "attente":
             if vs_ref > MOTION_PIXELS:
@@ -137,15 +138,23 @@ def detection_loop():
                 c: extract_impact(ref_frames[c], frames[c], surface_lines.get(c))
                 for c in grays if c in ref_frames
             }
-            kinds = [r[0] for r in results.values()]
+            state["last_settle"] = {
+                "time": datetime.now().strftime("%H:%M:%S"),
+                "cams": {str(c): {"kind": r[0], "area": r[2],
+                                  "tip": list(r[1]) if r[1] else None}
+                         for c, r in results.items()},
+            }
 
-            if "clear" in kinds:
-                # main / retrait des fléchettes : nouvelle référence, pas d'événement
+            tips = {c: r[1] for c, r in results.items() if r[0] == "dart"}
+            n_clear = sum(1 for r in results.values() if r[0] == "clear")
+
+            # une seule caméra bruitée ne doit pas annuler l'événement :
+            # le "clear" (retrait des fléchettes) ne gagne qu'en majorité
+            if n_clear >= 2 and len(tips) < 2:
                 state["phase"] = "attente"
                 ref_frames, ref_grays = frames, grays
                 continue
 
-            tips = {c: r[1] for c, r in results.items() if r[0] == "dart"}
             if len(tips) >= 2:
                 pred = predict(tips)
                 event = {
@@ -179,7 +188,9 @@ def api_status():
         or e["truth"] == str(e["prediction"]["throw"]["score"])
     )
     return jsonify({"phase": state["phase"], "events": state["events"][:10],
-                    "scored": len(done), "correct": correct})
+                    "scored": len(done), "correct": correct,
+                    "signals": state.get("signals"),
+                    "last_settle": state.get("last_settle")})
 
 
 @app.route("/api/truth", methods=["POST"])
@@ -267,6 +278,7 @@ def page():
  <div class="imgs" id="surfimgs" style="display:flex;flex-wrap:wrap;gap:8px"></div>
 </div>
 <div id="phase"></div>
+<div id="lastsettle" style="text-align:center;color:#8892a4;font-size:.85rem"></div>
 <div id="tally"></div>
 <div class="muted" style="color:#8892a4;text-align:center">
  Lance des fléchettes ! Chaque impact détecté apparaît ici avec le score prédit.<br>
@@ -276,7 +288,13 @@ def page():
 <script>
 async function refresh() {
   const d = await (await fetch('/api/status')).json();
-  document.getElementById('phase').textContent = 'État : ' + d.phase;
+  let ph = 'État : ' + d.phase;
+  if (d.signals) ph += ` · mouvement ${d.signals.inter}px · vs référence ${d.signals.vs_ref}px`;
+  document.getElementById('phase').textContent = ph;
+  document.getElementById('lastsettle').textContent = d.last_settle
+    ? `Dernière analyse ${d.last_settle.time} : ` + Object.entries(d.last_settle.cams).map(
+        ([c, r]) => `cam${c}=${r.kind}(${r.area}px)`).join(' · ')
+    : '';
   document.getElementById('tally').textContent =
     d.scored ? `Précision : ${d.correct}/${d.scored} (${Math.round(100*d.correct/d.scored)}%)` : '';
   // ne pas écraser la liste pendant qu'on tape dans un champ
