@@ -19,6 +19,7 @@ MIN_DART_AREA    = 60      # blob plus petit = bruit
 MAX_DART_AREA    = 12000   # blob plus grand = main / gros changement
 SETTLE_PIXELS    = 400     # nb de pixels changés entre 2 frames consécutives
                            # en dessous duquel la scène est considérée stable
+LINE_MARGIN      = 6       # tolérance (px) autour de la ligne de surface
 
 
 def preprocess(frame):
@@ -33,7 +34,7 @@ def changed_pixels(gray_a, gray_b):
     return int(np.count_nonzero(diff > DIFF_THRESHOLD))
 
 
-def extract_impact(reference_gray, settled_gray):
+def extract_impact(reference_gray, settled_gray, line=None):
     """Cherche la silhouette nouvelle entre référence et image stabilisée.
 
     Retourne (kind, tip, area) :
@@ -54,12 +55,56 @@ def extract_impact(reference_gray, settled_gray):
     if total_area > MAX_DART_AREA:
         return "clear", None, int(total_area)
 
-    biggest = max(contours, key=cv2.contourArea)
-    area = cv2.contourArea(biggest)
-    if area < MIN_DART_AREA:
-        return "none", None, int(area)
+    valid = [c for c in contours if cv2.contourArea(c) >= MIN_DART_AREA]
 
-    # La pointe : le point du blob le plus bas (image redressée = surface en bas)
-    pts = biggest.reshape(-1, 2)
+    # Rien de RÉEL ne peut apparaître sous le plan de la cible : un blob
+    # entièrement sous la ligne de surface est une ombre portée ou un
+    # reflet (mesuré sur données réelles : indiscernable d'un fût par la
+    # couleur, mais toujours sous la ligne).
+    if line is not None:
+        a, b = line
+        valid = [c for c in valid
+                 if (c.reshape(-1, 2)[:, 1]
+                     <= a * c.reshape(-1, 2)[:, 0] + b + LINE_MARGIN).any()]
+    if not valid:
+        return "none", None, int(max(cv2.contourArea(c) for c in contours))
+
+    # Le fût fin se fragmente souvent en plusieurs blobs sous l'empennage :
+    # on regroupe le plus gros blob avec les fragments alignés avec lui,
+    # et la pointe est le point le plus bas de l'ENSEMBLE (image redressée),
+    # sans descendre sous la ligne de surface.
+    cluster = _cluster_aligned(valid)
+    pts = np.vstack([c.reshape(-1, 2) for c in cluster])
+    if line is not None:
+        above = pts[:, 1] <= a * pts[:, 0] + b + LINE_MARGIN
+        if above.any():
+            pts = pts[above]
     tip = pts[pts[:, 1].argmax()]
+    area = sum(cv2.contourArea(c) for c in cluster)
     return "dart", (int(tip[0]), int(tip[1])), int(area)
+
+
+def _cluster_aligned(blobs, margin=25):
+    """Regroupe le plus gros blob avec les blobs qui le chevauchent
+    horizontalement (à ± margin px), de proche en proche — la chaîne
+    empennage / fût / pointe d'une même fléchette."""
+    order = sorted(range(len(blobs)), key=lambda i: cv2.contourArea(blobs[i]), reverse=True)
+    cluster = [blobs[order[0]]]
+    rest = [blobs[i] for i in order[1:]]
+    lo = int(cluster[0].reshape(-1, 2)[:, 0].min()) - margin
+    hi = int(cluster[0].reshape(-1, 2)[:, 0].max()) + margin
+    changed = True
+    while changed:
+        changed = False
+        remaining = []
+        for b in rest:
+            us = b.reshape(-1, 2)[:, 0]
+            if us.min() <= hi and us.max() >= lo:
+                cluster.append(b)
+                lo = min(lo, int(us.min()) - margin)
+                hi = max(hi, int(us.max()) + margin)
+                changed = True
+            else:
+                remaining.append(b)
+        rest = remaining
+    return cluster

@@ -38,12 +38,19 @@ ROTATE_CODES = {90: cv2.ROTATE_90_COUNTERCLOCKWISE, 180: cv2.ROTATE_180, 270: cv
 SETTLE_TICKS = 5          # frames stables consécutives pour valider l'impact
 MOTION_PIXELS = 800       # pixels changés vs référence pour déclencher
 
+SURFACE_FILE = os.path.join(HERE, "surface.json")
+
 app = Flask(__name__)
 
 _frames = {}              # dernière frame redressée par caméra
 _lock = threading.Lock()
 
 state = {"phase": "init", "events": [], "next_id": 1}
+
+# surface_lines[cam] = (a, b) : ligne de surface v = a*u + b (image redressée)
+surface_lines = {}
+if os.path.exists(SURFACE_FILE):
+    surface_lines = {int(k): tuple(v) for k, v in json.load(open(SURFACE_FILE)).items()}
 
 
 def upright(frame, cam):
@@ -128,7 +135,10 @@ def detection_loop():
                 continue
 
             # scène stabilisée : classifier ce qui a changé
-            results = {c: extract_impact(ref_grays[c], grays[c]) for c in grays}
+            results = {
+                c: extract_impact(ref_grays[c], grays[c], surface_lines.get(c))
+                for c in grays
+            }
             kinds = [r[0] for r in results.values()]
 
             if "clear" in kinds:
@@ -187,6 +197,40 @@ def api_truth():
     return jsonify({"error": "événement inconnu"}), 404
 
 
+@app.route("/surface_img/<int:cam>")
+def surface_img(cam):
+    # Frame live avec la ligne de surface actuelle superposée
+    with _lock:
+        frame = _frames.get(cam)
+    if frame is None:
+        return "pas d'image", 404
+    frame = frame.copy()
+    if cam in surface_lines:
+        a, b = surface_lines[cam]
+        w = frame.shape[1]
+        cv2.line(frame, (0, int(b)), (w - 1, int(a * (w - 1) + b)), (0, 165, 255), 2)
+    _, jpg = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 85])
+    return Response(jpg.tobytes(), mimetype="image/jpeg")
+
+
+@app.route("/api/set_surface", methods=["POST"])
+def api_set_surface():
+    d = request.json
+    (u1, v1), (u2, v2) = d["points"]
+    if abs(u2 - u1) < 5:
+        return jsonify({"error": "points trop proches horizontalement"}), 400
+    a = (v2 - v1) / (u2 - u1)
+    b = v1 - a * u1
+    surface_lines[int(d["cam"])] = (a, b)
+    json.dump({str(k): list(v) for k, v in surface_lines.items()}, open(SURFACE_FILE, "w"), indent=2)
+    return jsonify({"ok": True})
+
+
+@app.route("/api/surface_state")
+def api_surface_state():
+    return jsonify({"cams": CAMERA_INDICES, "configured": sorted(surface_lines.keys())})
+
+
 @app.route("/event_img/<stamp>/<int:cam>")
 def event_img(stamp, cam):
     path = os.path.join(DATASET_DIR, stamp, f"cam{cam}_annot.jpg")
@@ -217,6 +261,14 @@ def page():
  .truth-ok { color:#27ae60; font-weight:bold; }
 </style></head><body>
 <h1>🎯 Détection live</h1>
+<div class="ev">
+ <b>📐 Ligne de surface</b> <span id="surfstate" style="color:#8892a4"></span>
+ <div style="color:#8892a4;font-size:.85rem">Pour chaque caméra : clique 2 points LE LONG du bord de la
+ cible (là où les pointes se plantent), un vers chaque extrémité. Sert à exclure les ombres
+ (toujours sous la ligne) et à valider la pointe.</div>
+ <button onclick="toggleSurface()" id="surfbtn">Régler</button>
+ <div id="surfimgs" style="display:flex;flex-wrap:wrap;gap:8px"></div>
+</div>
 <div id="phase"></div>
 <div id="tally"></div>
 <div class="muted" style="color:#8892a4;text-align:center">
@@ -254,6 +306,41 @@ async function truth(id) {
     body: JSON.stringify({id: id, truth: v})});
   refresh();
 }
+// ---- Réglage de la ligne de surface ----
+let surfOpen = false, surfClicks = {};
+async function surfaceState() {
+  const d = await (await fetch('/api/surface_state')).json();
+  const missing = d.cams.filter(c => !d.configured.includes(c));
+  document.getElementById('surfstate').textContent = missing.length
+    ? '⚠️ à régler : caméras ' + missing.join(', ')
+    : '✓ les ' + d.cams.length + ' caméras sont réglées';
+  return d;
+}
+async function toggleSurface() {
+  surfOpen = !surfOpen;
+  document.getElementById('surfbtn').textContent = surfOpen ? 'Fermer' : 'Régler';
+  if (!surfOpen) { document.getElementById('surfimgs').innerHTML = ''; return; }
+  const d = await surfaceState();
+  surfClicks = {};
+  document.getElementById('surfimgs').innerHTML = d.cams.map(c => `
+    <div><div>Caméra ${c} — clique 2 points sur le bord</div>
+    <img id="surf${c}" src="/surface_img/${c}?t=${Date.now()}" style="width:280px;cursor:crosshair"
+         onclick="surfClick(event, ${c}, this)"></div>`).join('');
+}
+async function surfClick(ev, cam, img) {
+  const rect = img.getBoundingClientRect();
+  const s = img.naturalWidth / rect.width;
+  (surfClicks[cam] = surfClicks[cam] || []).push(
+    [(ev.clientX-rect.left)*s, (ev.clientY-rect.top)*s]);
+  if (surfClicks[cam].length === 2) {
+    await fetch('/api/set_surface', {method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({cam: cam, points: surfClicks[cam]})});
+    surfClicks[cam] = [];
+    img.src = '/surface_img/' + cam + '?t=' + Date.now();
+    surfaceState();
+  }
+}
+surfaceState();
 setInterval(refresh, 1500);
 refresh();
 </script></body></html>"""

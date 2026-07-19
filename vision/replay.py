@@ -26,6 +26,12 @@ import numpy as np
 
 from detector import MIN_DART_AREA, extract_impact, preprocess
 
+# lignes de surface v = a*u + b par caméra (surface.json à côté de ce script)
+SURFACE_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "surface.json")
+SURFACE = {}
+if os.path.exists(SURFACE_FILE):
+    SURFACE = {k: tuple(v) for k, v in json.load(open(SURFACE_FILE)).items()}
+
 ORANGE = (0, 165, 255)
 GREEN = (80, 220, 80)
 BLUE = (255, 120, 40)
@@ -45,10 +51,10 @@ def erase_burned_circle(after, before, meta, cam):
     return out
 
 
-def debug_sheet(before, after):
+def debug_sheet(before, after, line=None):
     """Rejoue extract_impact et rend la planche [après | masque | analyse]."""
     ref_gray, cur_gray = preprocess(before), preprocess(after)
-    kind, tip, area = extract_impact(ref_gray, cur_gray)
+    kind, tip, area = extract_impact(ref_gray, cur_gray, line)
 
     # reconstruire le masque comme dans extract_impact (pour l'afficher)
     from detector import DIFF_THRESHOLD
@@ -67,6 +73,10 @@ def debug_sheet(before, after):
             x, y = c.reshape(-1, 2).min(axis=0)
             cv2.putText(analysis, str(int(a)), (int(x), max(12, int(y) - 4)),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.45, GREEN, 1)
+    if line is not None:
+        a, b = line
+        w = analysis.shape[1]
+        cv2.line(analysis, (0, int(b)), (w - 1, int(a * (w - 1) + b)), BLUE, 1)
     if tip is not None:
         cv2.circle(analysis, tuple(tip), 12, ORANGE, 2)
     cv2.putText(analysis, f"{kind} (aire {area})", (8, 24),
@@ -101,7 +111,7 @@ def main(dataset_dir, out_dir):
             if not os.path.exists(os.path.join(folder, f"cam{cam}_annot.jpg")):
                 after = erase_burned_circle(after, before, meta, cam)
 
-            sheet, kind, tip, area = debug_sheet(before, after)
+            sheet, kind, tip, area = debug_sheet(before, after, SURFACE.get(cam))
             cv2.imwrite(os.path.join(out_dir, f"{stamp}_cam{cam}.jpg"), sheet)
             cam_summaries.append(f"cam{cam}: {kind} ({area}px)")
 
