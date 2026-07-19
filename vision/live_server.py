@@ -88,10 +88,12 @@ def save_event(event, ref_frames, settled_frames, tips):
         if c in ref_frames:
             cv2.imwrite(os.path.join(folder, f"cam{c}_before.jpg"), ref_frames[c])
         if c in settled_frames:
+            # image brute pour le rejeu hors ligne + annotée pour l'UI
+            cv2.imwrite(os.path.join(folder, f"cam{c}_after.jpg"), settled_frames[c])
             annotated = settled_frames[c].copy()
             if c in tips:
                 cv2.circle(annotated, tips[c], 10, (0, 165, 255), 2)
-            cv2.imwrite(os.path.join(folder, f"cam{c}_after.jpg"), annotated)
+            cv2.imwrite(os.path.join(folder, f"cam{c}_annot.jpg"), annotated)
     json.dump(event, open(os.path.join(folder, "meta.json"), "w"), indent=2)
 
 
@@ -187,7 +189,9 @@ def api_truth():
 
 @app.route("/event_img/<stamp>/<int:cam>")
 def event_img(stamp, cam):
-    path = os.path.join(DATASET_DIR, stamp, f"cam{cam}_after.jpg")
+    path = os.path.join(DATASET_DIR, stamp, f"cam{cam}_annot.jpg")
+    if not os.path.exists(path):
+        path = os.path.join(DATASET_DIR, stamp, f"cam{cam}_after.jpg")
     if not os.path.exists(path):
         return "absent", 404
     return Response(open(path, "rb").read(), mimetype="image/jpeg")
