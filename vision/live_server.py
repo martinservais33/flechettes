@@ -24,8 +24,7 @@ from flask import Flask, Response, jsonify, request
 
 from board import score_from_point
 from calib_model import ray_from_column, triangulate
-from detector import (SETTLE_PIXELS, changed_pixels, extract_impact,
-                      preprocess, surface_band_mask)
+from detector import SETTLE_PIXELS, changed_pixels, extract_impact, preprocess
 from test_cameras import open_camera
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -52,18 +51,6 @@ state = {"phase": "init", "events": [], "next_id": 1}
 surface_lines = {}
 if os.path.exists(SURFACE_FILE):
     surface_lines = {int(k): tuple(v) for k, v in json.load(open(SURFACE_FILE)).items()}
-_band_masks = {}          # masques recalculés quand la ligne change
-_surface_version = 0
-
-
-def get_band(cam, shape):
-    """Masque de bande pour une caméra (None si ligne pas encore réglée)."""
-    if cam not in surface_lines:
-        return None, None
-    key = (cam, _surface_version, shape[:2])
-    if key not in _band_masks:
-        _band_masks[key] = surface_band_mask(shape, surface_lines[cam])
-    return _band_masks[key], surface_lines[cam]
 
 
 def upright(frame, cam):
@@ -145,11 +132,11 @@ def detection_loop():
             if stable_ticks < SETTLE_TICKS:
                 continue
 
-            # scène stabilisée : classifier ce qui a changé (bande de surface seulement)
-            results = {}
-            for c in grays:
-                band, line = get_band(c, grays[c].shape)
-                results[c] = extract_impact(ref_grays[c], grays[c], band, line)
+            # scène stabilisée : classifier ce qui a changé (en couleur)
+            results = {
+                c: extract_impact(ref_frames[c], frames[c], surface_lines.get(c))
+                for c in grays if c in ref_frames
+            }
             kinds = [r[0] for r in results.values()]
 
             if "clear" in kinds:
@@ -226,7 +213,6 @@ def surface_img(cam):
 
 @app.route("/api/set_surface", methods=["POST"])
 def api_set_surface():
-    global _surface_version
     d = request.json
     (u1, v1), (u2, v2) = d["points"]
     if abs(u2 - u1) < 5:
@@ -234,7 +220,6 @@ def api_set_surface():
     a = (v2 - v1) / (u2 - u1)
     b = v1 - a * u1
     surface_lines[int(d["cam"])] = (a, b)
-    _surface_version += 1
     json.dump({str(k): list(v) for k, v in surface_lines.items()}, open(SURFACE_FILE, "w"), indent=2)
     return jsonify({"ok": True})
 

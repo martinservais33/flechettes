@@ -14,10 +14,13 @@ import cv2
 import numpy as np
 
 # Seuils (pixels sur images 640x480 / 480x640)
-DIFF_THRESHOLD   = 28      # intensité mini pour considérer un pixel changé
+DIFF_THRESHOLD   = 28      # intensité mini (gris) pour la détection de stabilité
+COLOR_THRESHOLD  = 20      # intensité mini (max des canaux BGR) pour la silhouette
+                           # plus sensible que le gris : le fût argenté d'une
+                           # fléchette disparaît en niveaux de gris
 MIN_DART_AREA    = 60      # blob plus petit = bruit
-MAX_DART_AREA    = 3500    # blob plus grand (dans la bande) = main / gros changement
-CLEAR_AREA       = 8000    # surface totale changée -> retrait des fléchettes
+MAX_DART_AREA    = 9000    # blob plus grand = main / gros changement
+CLEAR_AREA       = 15000   # surface totale changée -> retrait des fléchettes
 SETTLE_PIXELS    = 400     # nb de pixels changés entre 2 frames consécutives
                            # en dessous duquel la scène est considérée stable
 BAND_UP          = 70      # hauteur de la bande d'analyse au-dessus de la surface
@@ -54,49 +57,53 @@ def surface_band_mask(shape, line):
     return mask
 
 
-def extract_impact(reference_gray, settled_gray, band_mask=None, line=None):
+def extract_impact(reference_bgr, settled_bgr, line=None):
     """Cherche la silhouette nouvelle entre référence et image stabilisée.
 
-    band_mask / line : restreignent l'analyse à la bande au-dessus de la
-    surface et définissent la pointe comme le point le plus PROCHE de la
-    surface (et non le plus bas de la silhouette, faussé quand la
-    fléchette penche et que l'empennage descend sous la pointe).
+    Travaille en COULEUR (max des canaux) : le fût argenté et la pointe
+    d'une fléchette contrastent peu en niveaux de gris et disparaissaient
+    de la silhouette — seul l'empennage sombre était détecté, et la
+    "pointe" se retrouvait au bas de l'empennage.
+
+    La pointe est le point détecté le plus proche de la ligne de surface,
+    en préférant les points de la bande proche de la cible.
 
     Retourne (kind, tip, area) :
-      kind = "dart"  -> tip = (u, v) de la pointe, area = taille du blob
+      kind = "dart"  -> tip = (u, v) de la pointe, area = surface totale
       kind = "clear" -> perturbation massive (main, fléchettes retirées)
       kind = "none"  -> rien de significatif
     """
-    diff = cv2.absdiff(settled_gray, reference_gray)
-    _, mask = cv2.threshold(diff, DIFF_THRESHOLD, 255, cv2.THRESH_BINARY)
-    if band_mask is not None:
-        mask = cv2.bitwise_and(mask, band_mask)
+    diff = cv2.absdiff(settled_bgr, reference_bgr)
+    if diff.ndim == 3:
+        diff = diff.max(axis=2)
+    _, mask = cv2.threshold(diff, COLOR_THRESHOLD, 255, cv2.THRESH_BINARY)
     mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, np.ones((3, 3), np.uint8))
-    mask = cv2.dilate(mask, np.ones((3, 3), np.uint8))
+    # dilatation forte : reconnecte l'empennage au fût fin qui se détecte mal
+    mask = cv2.dilate(mask, np.ones((5, 5), np.uint8), iterations=2)
 
     contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     if not contours:
         return "none", None, 0
 
     blobs = [c for c in contours if cv2.contourArea(c) >= MIN_DART_AREA]
-    total_area = sum(cv2.contourArea(c) for c in contours)
-    # Retrait des fléchettes : perturbation massive OU plusieurs blobs à la
-    # fois (les fléchettes retirées "disparaissent" chacune de la référence)
+    total_area = int(sum(cv2.contourArea(c) for c in blobs))
+    # Retrait des fléchettes : perturbation massive OU plusieurs silhouettes
+    # d'un coup (chaque fléchette retirée "disparaît" de la référence)
     if total_area > CLEAR_AREA or len(blobs) >= 3:
-        return "clear", None, int(total_area)
+        return "clear", None, total_area
+    if not blobs or max(cv2.contourArea(c) for c in blobs) > MAX_DART_AREA:
+        return ("clear", None, total_area) if blobs else ("none", None, 0)
 
-    if not blobs:
-        return "none", None, 0
-    biggest = max(blobs, key=cv2.contourArea)
-    area = cv2.contourArea(biggest)
-    if area > MAX_DART_AREA:
-        return "clear", None, int(area)
-
-    pts = biggest.reshape(-1, 2)
+    # candidats = tous les points des blobs valides (la fléchette peut être
+    # fragmentée en 2 morceaux : empennage + bout de fût)
+    pts = np.vstack([c.reshape(-1, 2) for c in blobs])
     if line is not None:
         a, b = line
-        # pointe = point le plus proche de la ligne de surface
-        tip = pts[(pts[:, 1] - (a * pts[:, 0] + b)).argmax()]
+        dist = pts[:, 1] - (a * pts[:, 0] + b)   # <0 au-dessus de la surface
+        in_band = (dist >= -BAND_UP) & (dist <= BAND_DOWN)
+        if in_band.any():
+            pts, dist = pts[in_band], dist[in_band]
+        tip = pts[dist.argmax()]                 # le plus proche de la surface
     else:
         tip = pts[pts[:, 1].argmax()]
-    return "dart", (int(tip[0]), int(tip[1])), int(area)
+    return "dart", (int(tip[0]), int(tip[1])), total_area
