@@ -78,6 +78,9 @@ def grab_grays():
     return frames, {c: preprocess(f) for c, f in frames.items()}
 
 
+DOUBTFUL_MM = 20.0   # au-delà : probablement une main, pas une fléchette
+
+
 def predict(tips):
     """tips: {cam: (u, v)} -> (throw, x, y, coherence) via triangulation."""
     rays = [ray_from_column(CALIB[str(c)]["params"], u) for c, (u, v) in tips.items()]
@@ -85,7 +88,11 @@ def predict(tips):
         return None
     (x, y), coherence = triangulate(rays)
     throw = score_from_point(x, y)
-    return {"throw": throw, "x": round(x, 1), "y": round(y, 1), "coherence_mm": round(coherence, 1)}
+    out = {"throw": throw, "x": round(x, 1), "y": round(y, 1),
+           "coherence_mm": round(coherence, 1)}
+    if coherence > DOUBTFUL_MM:
+        out["doubtful"] = True
+    return out
 
 
 def save_event(event, ref_frames, settled_frames, tips):
@@ -99,7 +106,7 @@ def save_event(event, ref_frames, settled_frames, tips):
             cv2.imwrite(os.path.join(folder, f"cam{c}_after.jpg"), settled_frames[c])
             annotated = settled_frames[c].copy()
             if c in tips:
-                cv2.circle(annotated, tips[c], 10, (0, 165, 255), 2)
+                cv2.circle(annotated, tuple(int(round(x)) for x in tips[c]), 10, (0, 165, 255), 2)
             cv2.imwrite(os.path.join(folder, f"cam{c}_annot.jpg"), annotated)
     json.dump(event, open(os.path.join(folder, "meta.json"), "w"), indent=2)
 
@@ -288,7 +295,8 @@ async function refresh() {
   document.getElementById('events').innerHTML = d.events.map(e => {
     const t = e.prediction ? e.prediction.throw : null;
     const pred = t ? `${t.multiplier}x${t.sector} — ${t.score} pts (${t.zone})` : 'échec triangulation';
-    const coh = e.prediction ? ` · cohérence ${e.prediction.coherence_mm} mm` : '';
+    let coh = e.prediction ? ` · cohérence ${e.prediction.coherence_mm} mm` : '';
+    if (e.prediction && e.prediction.doubtful) coh += ' · ⚠ DOUTEUX (main / occlusion ?)';
     const truth = e.truth !== null
       ? `<span class="truth-ok">réel : ${e.truth}</span>`
       : `<input id="in${e.id}" placeholder="ex: 3x20" onkeydown="if(event.key==='Enter')truth(${e.id})"> <button onclick="truth(${e.id})">Valider</button>`;

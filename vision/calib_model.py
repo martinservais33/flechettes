@@ -104,3 +104,10 @@ def triangulate(rays):
         for o, d in rays
     ]))
     return (float(point[0]), float(point[1])), err
+
+
+# NB : la "réparation" d'occlusion (écarter le rayon aberrant et garder la
+# meilleure paire) a été testée et abandonnée : avec seulement 3 caméras,
+# le rayon aberrant n'est pas identifiable de façon fiable (vérifié par
+# simulation, <40% de réussite même en occlusion franche). On expose
+# plutôt la cohérence comme indicateur de confiance.

@@ -44,6 +44,7 @@ def extract_impact(reference_gray, settled_gray, line=None):
     """
     diff = cv2.absdiff(settled_gray, reference_gray)
     _, mask = cv2.threshold(diff, DIFF_THRESHOLD, 255, cv2.THRESH_BINARY)
+    raw_mask = mask.copy()   # avant morphologie, pour l'affinage sub-pixel
     mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, np.ones((3, 3), np.uint8))
     mask = cv2.dilate(mask, np.ones((3, 3), np.uint8))
 
@@ -81,7 +82,21 @@ def extract_impact(reference_gray, settled_gray, line=None):
             pts = pts[above]
     tip = pts[pts[:, 1].argmax()]
     area = sum(cv2.contourArea(c) for c in cluster)
-    return "dart", (int(tip[0]), int(tip[1])), int(area)
+    # Affinage : la dilatation décale le coin bas du blob de 2-3 px, ce qui
+    # suffit à rater un triple. On recentre u sur le centroïde du masque
+    # BRUT dans les dernières lignes avant la surface.
+    u_ref = _refine_tip_u(raw_mask, tip)
+    return "dart", (round(float(u_ref), 1), int(tip[1])), int(area)
+
+
+def _refine_tip_u(raw_mask, tip):
+    u0, v0 = int(tip[0]), int(tip[1])
+    h, w = raw_mask.shape
+    roi = raw_mask[max(0, v0 - 6):min(h, v0 + 3), max(0, u0 - 8):min(w, u0 + 9)]
+    ys, xs = np.nonzero(roi)
+    if len(xs) == 0:
+        return float(u0)
+    return max(0, u0 - 8) + float(xs.mean())
 
 
 def _cluster_aligned(blobs, margin=25):

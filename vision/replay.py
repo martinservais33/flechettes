@@ -78,7 +78,7 @@ def debug_sheet(before, after, line=None):
         w = analysis.shape[1]
         cv2.line(analysis, (0, int(b)), (w - 1, int(a * (w - 1) + b)), BLUE, 1)
     if tip is not None:
-        cv2.circle(analysis, tuple(tip), 12, ORANGE, 2)
+        cv2.circle(analysis, tuple(int(round(x)) for x in tip), 12, ORANGE, 2)
     cv2.putText(analysis, f"{kind} (aire {area})", (8, 24),
                 cv2.FONT_HERSHEY_SIMPLEX, 0.7, ORANGE, 2)
 
@@ -95,7 +95,7 @@ def main(dataset_dir, out_dir):
         stamp = os.path.basename(folder)
         meta = {}
         meta_path = os.path.join(folder, "meta.json")
-        if os.path.exists(meta_path):
+        if os.path.exists(meta_path) and os.path.getsize(meta_path) > 0:
             meta = json.load(open(meta_path))
 
         cam_summaries = []
