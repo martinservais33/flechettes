@@ -24,8 +24,11 @@ MAX_DART_AREA    = 9000    # blob plus grand = main / gros changement
 CLEAR_AREA       = 15000   # surface totale changée -> retrait des fléchettes
 SETTLE_PIXELS    = 400     # nb de pixels changés entre 2 frames consécutives
                            # en dessous duquel la scène est considérée stable
-BAND_UP          = 70      # hauteur de la bande d'analyse au-dessus de la surface
+BAND_UP          = 140     # hauteur de la bande d'analyse au-dessus de la surface
 BAND_DOWN        = 8       # marge sous la ligne de surface
+SHADOW_MIN_RATIO = 0.45    # une ombre garde au moins 45% de la luminosité
+SHADOW_SPREAD    = 0.08    # écart max entre canaux du ratio pour être une ombre
+                           # (au-delà, la teinte change : objet réel, pas une ombre)
 
 
 def preprocess(frame):
@@ -78,6 +81,19 @@ def extract_impact(reference_bgr, settled_bgr, line=None):
     if diff.ndim == 3:
         diff = diff.max(axis=2)
     _, mask = cv2.threshold(diff, COLOR_THRESHOLD, 255, cv2.THRESH_BINARY)
+
+    if settled_bgr.ndim == 3:
+        # Suppression des ombres : une ombre ASSOMBRIT sans changer la teinte
+        # (les 3 canaux baissent dans la même proportion). Une fléchette, un
+        # objet réel, change la couleur -> le ratio diffère entre canaux.
+        ref_f = reference_bgr.astype(np.float32) + 8.0
+        cur_f = settled_bgr.astype(np.float32) + 8.0
+        ratio = cur_f / ref_f
+        rmin = ratio.min(axis=2)
+        rspread = ratio.max(axis=2) - rmin
+        shadow = (rmin >= SHADOW_MIN_RATIO) & (ratio.max(axis=2) < 1.0) & \
+                 (rspread < SHADOW_SPREAD)
+        mask[shadow] = 0
     mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, np.ones((3, 3), np.uint8))
     # dilatation forte : reconnecte l'empennage au fût fin qui se détecte mal
     mask = cv2.dilate(mask, np.ones((5, 5), np.uint8), iterations=2)
