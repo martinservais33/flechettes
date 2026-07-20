@@ -184,10 +184,14 @@ def detection_loop():
             if stable_ticks < SETTLE_TICKS:
                 continue
 
-            # Mouvement trop long pour un lancer (main, personne qui passe) :
-            # on met à jour la référence sans créer d'événement
+            # Mouvement trop long pour un lancer : une main à la cible,
+            # c'est-à-dire (presque toujours) la récupération des fléchettes.
+            # En mode jeu, en milieu de tour, ça vaut "Valider le tour".
             if unstable_ticks > MAX_THROW_TICKS:
                 print(f"mouvement long ({unstable_ticks} frames instables) : ignoré")
+                if state["game_mode"] and 0 < state["turn_darts"] < 3:
+                    game_post("/end_turn")
+                state["turn_darts"] = 0
                 state["phase"] = "attente"
                 ref_frames, ref_grays = frames, grays
                 continue
