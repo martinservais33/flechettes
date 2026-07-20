@@ -51,7 +51,8 @@ _frames = {}              # dernière frame redressée par caméra
 _lock = threading.Lock()
 
 state = {"phase": "init", "events": [], "next_id": 1,
-         "game_mode": False,   # envoyer les lancers au jeu
+         "game_mode": True,    # envoyer les lancers au jeu (sans partie en
+                               # cours, l'envoi échoue silencieusement)
          "turn_darts": 0}      # lancers envoyés depuis le début du tour
 
 # surface_lines[cam] = (a, b) : ligne de surface v = a*u + b (image redressée)
