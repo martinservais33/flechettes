@@ -17,6 +17,7 @@ import os
 import sys
 import threading
 import time
+import urllib.request
 from datetime import datetime
 
 import cv2
@@ -49,7 +50,9 @@ app = Flask(__name__)
 _frames = {}              # dernière frame redressée par caméra
 _lock = threading.Lock()
 
-state = {"phase": "init", "events": [], "next_id": 1}
+state = {"phase": "init", "events": [], "next_id": 1,
+         "game_mode": False,   # envoyer les lancers au jeu
+         "turn_darts": 0}      # lancers envoyés depuis le début du tour
 
 # surface_lines[cam] = (a, b) : ligne de surface v = a*u + b (image redressée)
 surface_lines = {}
@@ -101,6 +104,22 @@ def grab_grays():
 
 
 DOUBTFUL_MM = 20.0   # au-delà : probablement une main, pas une fléchette
+
+# ---- Liaison au jeu ----
+# Quand le mode jeu est actif, chaque lancer fiable est envoyé au serveur
+# de jeu (même route que la saisie manuelle), et une récupération des
+# fléchettes en milieu de tour vaut "Valider le tour".
+GAME_API = "http://localhost:5000/api"
+
+
+def game_post(path, body=None):
+    try:
+        req = urllib.request.Request(GAME_API + path, method="POST",
+                                     headers={"Content-Type": "application/json"})
+        with urllib.request.urlopen(req, json.dumps(body or {}).encode(), timeout=2) as r:
+            return json.load(r)
+    except Exception as exc:
+        return {"error": str(exc)}
 
 
 def predict(tips):
@@ -181,7 +200,13 @@ def detection_loop():
             kinds = [r[0] for r in results.values()]
 
             if "clear" in kinds:
-                # main / retrait des fléchettes : nouvelle référence, pas d'événement
+                # main / retrait des fléchettes : nouvelle référence, pas d'événement.
+                # En mode jeu, un retrait en milieu de tour (1 ou 2 lancers)
+                # vaut "Valider le tour" ; après 3 lancers le jeu a déjà
+                # changé de joueur tout seul.
+                if state["game_mode"] and 0 < state["turn_darts"] < 3:
+                    game_post("/end_turn")
+                state["turn_darts"] = 0
                 state["phase"] = "attente"
                 ref_frames, ref_grays = frames, grays
                 continue
@@ -198,6 +223,21 @@ def detection_loop():
                     "prediction": pred,
                     "truth": None,
                 }
+                # Envoi au jeu (si mode jeu actif et lancer fiable)
+                if state["game_mode"] and pred:
+                    if pred.get("doubtful"):
+                        event["sent"] = "non envoyé (douteux)"
+                    else:
+                        res = game_post("/throw", pred["throw"])
+                        if "error" in res:
+                            event["sent"] = f"erreur jeu : {res['error']}"
+                        else:
+                            result = res.get("result")
+                            event["sent"] = f"envoyé ({result})"
+                            if result == "added":
+                                state["turn_darts"] += 1
+                            else:  # turn_end / win : le jeu a clôturé le tour
+                                state["turn_darts"] = 0
                 state["next_id"] += 1
                 save_event(event, ref_frames, frames, tips)
                 state["events"].insert(0, event)
@@ -220,7 +260,15 @@ def api_status():
         or e["truth"] == str(e["prediction"]["throw"]["score"])
     )
     return jsonify({"phase": state["phase"], "events": state["events"][:10],
-                    "scored": len(done), "correct": correct})
+                    "scored": len(done), "correct": correct,
+                    "game_mode": state["game_mode"], "turn_darts": state["turn_darts"]})
+
+
+@app.route("/api/game_mode", methods=["POST"])
+def api_game_mode():
+    state["game_mode"] = bool(request.json.get("on"))
+    state["turn_darts"] = 0
+    return jsonify({"ok": True, "game_mode": state["game_mode"]})
 
 
 @app.route("/api/truth", methods=["POST"])
@@ -349,6 +397,12 @@ def page():
  <button onclick="toggleRoi()" id="roibtn">Régler</button>
  <div id="roiimgs" style="display:flex;flex-wrap:wrap;gap:8px"></div>
 </div>
+<div class="ev">
+ <b>🎮 Mode jeu</b>
+ <label style="cursor:pointer"><input type="checkbox" id="gamemode" onchange="setGameMode()">
+ envoyer les lancers détectés au jeu (lance d'abord une partie sur l'écran tactile ou le téléphone)</label>
+ <span id="turndarts" style="color:#8892a4"></span>
+</div>
 <div id="phase"></div>
 <div id="tally"></div>
 <div class="muted" style="color:#8892a4;text-align:center">
@@ -360,6 +414,9 @@ def page():
 async function refresh() {
   const d = await (await fetch('/api/status')).json();
   document.getElementById('phase').textContent = 'État : ' + d.phase;
+  document.getElementById('gamemode').checked = d.game_mode;
+  document.getElementById('turndarts').textContent =
+    d.game_mode ? ` — tour en cours : ${d.turn_darts}/3 fléchettes` : '';
   document.getElementById('tally').textContent =
     d.scored ? `Précision : ${d.correct}/${d.scored} (${Math.round(100*d.correct/d.scored)}%)` : '';
   // ne pas écraser la liste pendant qu'on tape dans un champ
@@ -370,6 +427,7 @@ async function refresh() {
     const pred = t ? `${t.multiplier}x${t.sector} — ${t.score} pts (${t.zone})` : 'échec triangulation';
     let coh = e.prediction ? ` · cohérence ${e.prediction.coherence_mm} mm` : '';
     if (e.prediction && e.prediction.doubtful) coh += ' · ⚠ DOUTEUX (main / occlusion ?)';
+    if (e.sent) coh += ' · 🎮 ' + e.sent;
     const truth = e.truth !== null
       ? `<span class="truth-ok">réel : ${e.truth}</span>`
       : `<input id="in${e.id}" placeholder="ex: 3x20" onkeydown="if(event.key==='Enter')truth(${e.id})"> <button onclick="truth(${e.id})">Valider</button>`;
@@ -455,6 +513,11 @@ async function roiClick(ev, cam, img) {
     img.src = '/roi_img/' + cam + '?t=' + Date.now();
     roiState();
   }
+}
+async function setGameMode() {
+  await fetch('/api/game_mode', {method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({on: document.getElementById('gamemode').checked})});
+  refresh();
 }
 surfaceState();
 roiState();
