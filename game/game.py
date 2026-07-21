@@ -162,6 +162,7 @@ class Game:
                     "name": p.name,
                     "state": self.states[i],
                     "last_throws": p.history[-1] if p.history else [],
+                    "history": p.history,
                 }
                 for i, p in enumerate(self.players)
             ],

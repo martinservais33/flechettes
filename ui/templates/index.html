@@ -4,142 +4,113 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Fléchettes</title>
-  <link rel="stylesheet" href="/static/css/style.css" id="theme-css" />
+  <link rel="stylesheet" href="/static/css/style.css" />
 </head>
 <body>
-  <button id="theme-toggle" onclick="toggleTheme()">🌙 Sombre</button>
 
-  <!-- ===================== ÉCRAN D'ACCUEIL ===================== -->
+  <!-- ===================== ACCUEIL ===================== -->
   <div id="screen-home" class="screen active">
-    <h1>🎯 Fléchettes</h1>
+    <div class="home-title"><span class="brand">🎯 FLÉCHETTES</span></div>
 
-    <!-- Carte "reprendre" — visible seulement si une partie est en cours -->
+    <!-- Reprise (visible si partie en cours) -->
     <div id="resume-card" class="card resume-card" style="display:none">
-      <h2>Partie en cours</h2>
+      <div class="resume-title">PARTIE EN COURS</div>
       <div id="resume-info" class="resume-info"></div>
-      <button class="btn-primary big" onclick="resumeGame()">↩ Reprendre la partie</button>
+      <button class="btn-primary big" onclick="resumeGame()">↩ REPRENDRE LA PARTIE</button>
     </div>
 
     <div class="card">
-      <h2>Joueurs de la partie</h2>
+      <div class="eyebrow">Joueurs de la partie</div>
       <div id="players-list"></div>
-
-      <h2>Joueurs enregistrés</h2>
+      <div class="eyebrow" style="margin-top:4px">Joueurs enregistrés</div>
       <div id="saved-players-list"></div>
-
-      <div class="row">
+      <div class="row" style="margin-top:4px">
         <input id="player-input" type="text" placeholder="Nouveau joueur…" />
-        <button onclick="createPlayer()">Créer</button>
+        <button class="btn-ghost" onclick="createPlayer()">Créer</button>
       </div>
     </div>
 
     <div class="card">
-      <h2>Mode de jeu</h2>
-      <div class="btn-group" id="mode-select">
+      <div class="eyebrow">Mode de jeu</div>
+      <div class="mode-grid" id="mode-select">
         <button class="mode-btn active" data-mode="501">501</button>
         <button class="mode-btn" data-mode="301">301</button>
         <button class="mode-btn" data-mode="701">701</button>
         <button class="mode-btn" data-mode="cricket">Cricket</button>
         <button class="mode-btn" data-mode="clock">Horloge</button>
       </div>
-      <div id="x01-options">
+      <div class="opts" id="x01-options">
         <label><input type="checkbox" id="double-in" /> Double In</label>
         <label><input type="checkbox" id="double-out" checked /> Double Out</label>
       </div>
-      <div id="cricket-options" style="display:none">
-        <label><input type="checkbox" id="cut-throat" /> Cut-throat (celui qui perd prend les points)</label>
+      <div class="opts" id="cricket-options" style="display:none">
+        <label><input type="checkbox" id="cut-throat" /> Cut-throat (le perdant prend les points)</label>
       </div>
     </div>
 
-    <button class="btn-primary big" onclick="startGame()">Lancer la partie</button>
-    <button class="btn-ghost big" style="margin-top:8px" onclick="showHistory()">Anciennes parties & Stats</button>
-    <button id="exit-kiosk-btn" class="btn-ghost big" style="display:none; margin-top:8px" onclick="exitKiosk()">✕ Quitter l'application</button>
+    <button class="btn-primary big" onclick="startGame()">LANCER LA PARTIE</button>
+    <button class="btn-ghost big" style="margin-top:8px" onclick="showHistory()">Anciennes parties & stats</button>
+    <button id="exit-kiosk-btn" class="btn-ghost big" style="display:none;margin-top:8px" onclick="exitKiosk()">✕ Quitter l'application</button>
   </div>
 
-  <!-- ===================== ÉCRAN DE JEU ===================== -->
+  <!-- ===================== JEU ===================== -->
   <div id="screen-game" class="screen">
-
     <header class="game-header">
       <button class="btn-ghost" onclick="showHome()">← Accueil</button>
-      <span id="game-mode-label"></span>
-      <button class="btn-ghost" onclick="undoDart()">↩ Lancer</button>
+      <div class="game-title"><span id="game-mode-label"></span></div>
+      <div class="sensor"><span class="dot"></span>CAPTEUR</div>
     </header>
 
     <div id="scoreboard"></div>
+    <div id="game-main" class="game-main"></div>
 
-    <div class="card">
-      <h3>Tour en cours — <span id="current-player-name"></span></h3>
-      <div id="current-throws" class="throws-row"></div>
-      <div class="row">
-        <button class="btn-secondary" onclick="endTurn()">Valider le tour</button>
-      </div>
-    </div>
-
-    <!-- Saisie mode horloge -->
-    <div class="card" id="clock-board-card" style="display:none">
-      <h3><span id="clock-player-name" class="clock-player-name"></span> — viser le <span id="clock-target-display" class="clock-target-label">1</span></h3>
-      <div id="clock-dartboard-svg" class="clock-svg-wrap"></div>
-      <div id="clock-throw-buttons" class="clock-buttons"></div>
-    </div>
-
-    <div class="card" id="manual-input-card">
-      <h3>Saisie manuelle</h3>
-      <div class="dartboard-input">
-        <div class="multiplier-row">
+    <!-- Saisie manuelle -->
+    <div class="manual-panel" id="manual-panel">
+      <div class="manual-head">
+        <span class="eyebrow">Saisie manuelle</span>
+        <div class="mult-row">
           <button class="mult-btn active" data-mult="1">Simple</button>
           <button class="mult-btn" data-mult="2">Double</button>
           <button class="mult-btn" data-mult="3">Triple</button>
         </div>
-        <div class="sectors-grid">
-          <button class="sector-btn bull" onclick="throwDart(50,0,50,'bull')">Bull</button>
-          <button class="sector-btn outer-bull" onclick="throwDart(25,0,25,'outer_bull')">25</button>
-        </div>
-        <div class="sectors-grid" id="sectors-grid"></div>
-        <button class="sector-btn miss" onclick="throwDart(0,0,0,'miss')">Miss</button>
+      </div>
+      <div class="sectors-grid" id="sectors-grid"></div>
+      <div class="action-row">
+        <button class="miss" onclick="throwDart(0,0,0,'miss')">RATÉ</button>
+        <button class="undo" onclick="undoDart()">↺ ANNULER</button>
+        <button class="validate" onclick="endTurn()">VALIDER</button>
       </div>
     </div>
 
-    <div class="card" id="edit-score-card">
-      <h3>Correction de score</h3>
+    <!-- Correction de score (x01) -->
+    <details class="card edit-card" id="edit-score-card">
+      <summary>Corriger les scores</summary>
       <div id="edit-score-list"></div>
-    </div>
-
+    </details>
   </div>
 
-  <!-- ===================== ÉCRAN FIN ===================== -->
+  <!-- ===================== VICTOIRE ===================== -->
   <div id="screen-win" class="screen">
-    <h1>🏆</h1>
+    <div class="trophy">🏆</div>
     <h2 id="winner-name"></h2>
-    <p>a gagné !</p>
-    <button class="btn-primary big" onclick="showHome()">Nouvelle partie</button>
-    <button class="btn-ghost big" style="margin-top:8px" onclick="showHistory()">Voir les stats</button>
+    <div class="subtitle">a gagné la partie</div>
+    <button class="btn-primary big" onclick="showHome()">NOUVELLE PARTIE</button>
+    <button class="btn-ghost big" style="margin-top:8px;max-width:380px;margin-left:auto;margin-right:auto" onclick="showHistory()">Voir les stats</button>
   </div>
 
-  <!-- ===================== ÉCRAN HISTORIQUE ===================== -->
+  <!-- ===================== HISTORIQUE ===================== -->
   <div id="screen-history" class="screen">
-
     <header class="game-header">
       <button class="btn-ghost" onclick="showHome()">← Accueil</button>
-      <span>Historique & Stats</span>
-      <span></span>
+      <div class="game-title">Historique & Stats</div>
+      <span style="width:80px"></span>
     </header>
-
-    <!-- Onglets -->
     <div class="tabs">
       <button class="tab-btn active" onclick="switchTab('tab-games')">Parties</button>
       <button class="tab-btn" onclick="switchTab('tab-stats')">Stats joueurs</button>
     </div>
-
-    <!-- Onglet parties -->
-    <div id="tab-games" class="tab-content active">
-      <div id="games-list"></div>
-    </div>
-
-    <!-- Onglet stats -->
-    <div id="tab-stats" class="tab-content">
-      <div id="stats-list"></div>
-    </div>
-
+    <div id="tab-games" class="tab-content active"><div id="games-list"></div></div>
+    <div id="tab-stats" class="tab-content"><div id="stats-list"></div></div>
   </div>
 
   <!-- Clavier virtuel tactile -->
