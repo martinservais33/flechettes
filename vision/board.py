@@ -32,6 +32,17 @@ def sector_point(sector, radius):
     return (radius * math.cos(a), radius * math.sin(a))
 
 
+def corner_point(sector, neighbour, radius):
+    """Point (x, y) en mm au CROISEMENT du fil séparant `sector` de son
+    voisin `neighbour` (dans le sens horaire) avec un anneau de rayon
+    donné. C'est un coin de case, repère exact où caler la pointe."""
+    idx = SECTORS.index(sector)
+    if SECTORS[(idx + 1) % 20] != neighbour:
+        raise ValueError(f"{sector} et {neighbour} ne sont pas adjacents (sens horaire)")
+    a = math.radians(sector_center_angle(sector) - 9)   # frontière = centre - 9°
+    return (radius * math.cos(a), radius * math.sin(a))
+
+
 def score_from_point(x, y):
     """Convertit une coordonnée (mm) en lancer {score, sector, multiplier, zone}."""
     r = math.hypot(x, y)
@@ -54,17 +65,20 @@ def score_from_point(x, y):
 
 
 # Points de calibration : (id, libellé, x, y)
-# 9 doubles répartis sur le tour + bull + 2 triples pour la diversité radiale.
+# Des COINS de cases (croisements de fils) : la pointe se cale exactement
+# dans le coin, bien plus précis qu'un milieu de case estimé à l'œil.
+# 8 coins extérieurs de doubles répartis sur le tour + bull + 2 coins de
+# triples pour la diversité radiale.
 CALIB_POINTS = [
-    ("bull", "Bull (centre exact)", 0.0, 0.0),
-    ("d20", "Double 20 (haut)", *sector_point(20, R_DOUBLE_MID)),
-    ("d4",  "Double 4",  *sector_point(4,  R_DOUBLE_MID)),
-    ("d6",  "Double 6 (droite)", *sector_point(6, R_DOUBLE_MID)),
-    ("d15", "Double 15", *sector_point(15, R_DOUBLE_MID)),
-    ("d3",  "Double 3 (bas)", *sector_point(3, R_DOUBLE_MID)),
-    ("d7",  "Double 7",  *sector_point(7,  R_DOUBLE_MID)),
-    ("d11", "Double 11 (gauche)", *sector_point(11, R_DOUBLE_MID)),
-    ("d9",  "Double 9",  *sector_point(9,  R_DOUBLE_MID)),
-    ("t20", "Triple 20", *sector_point(20, R_TRIPLE_MID)),
-    ("t3",  "Triple 3",  *sector_point(3,  R_TRIPLE_MID)),
+    ("bull",  "Bull (centre exact)", 0.0, 0.0),
+    ("d20_1", "Double 20 — coin extérieur, côté du 1",  *corner_point(20, 1,  R_DOUBLE_OUT)),
+    ("d4_13", "Double 4 — coin extérieur, côté du 13",  *corner_point(4,  13, R_DOUBLE_OUT)),
+    ("d6_10", "Double 6 — coin extérieur, côté du 10",  *corner_point(6,  10, R_DOUBLE_OUT)),
+    ("d15_2", "Double 15 — coin extérieur, côté du 2",  *corner_point(15, 2,  R_DOUBLE_OUT)),
+    ("d3_19", "Double 3 — coin extérieur, côté du 19",  *corner_point(3,  19, R_DOUBLE_OUT)),
+    ("d7_16", "Double 7 — coin extérieur, côté du 16",  *corner_point(7,  16, R_DOUBLE_OUT)),
+    ("d11_14","Double 11 — coin extérieur, côté du 14", *corner_point(11, 14, R_DOUBLE_OUT)),
+    ("d9_12", "Double 9 — coin extérieur, côté du 12",  *corner_point(9,  12, R_DOUBLE_OUT)),
+    ("t20_1", "Triple 20 — coin extérieur, côté du 1",  *corner_point(20, 1,  R_TRIPLE_OUT)),
+    ("t3_19", "Triple 3 — coin extérieur, côté du 19",  *corner_point(3,  19, R_TRIPLE_OUT)),
 ]
