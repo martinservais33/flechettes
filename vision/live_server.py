@@ -14,6 +14,7 @@ puis ouvrir http://flechettes.local:5003
 
 import json
 import os
+import shutil
 import sys
 import threading
 import time
@@ -31,6 +32,8 @@ from test_cameras import open_camera
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 DATASET_DIR = os.path.join(HERE, "dataset")
+KEEP_EVENTS = 20   # fenêtre glissante : seuls les N derniers événements sont
+                   # conservés sur disque (évite de saturer la carte SD)
 CALIB = json.load(open(os.path.join(HERE, "calibration.json")))["cams"]
 ROTATIONS = {int(k): v for k, v in json.load(open(os.path.join(HERE, "rotations.json"))).items()} \
     if os.path.exists(os.path.join(HERE, "rotations.json")) else {}
@@ -151,6 +154,19 @@ def save_event(event, ref_frames, settled_frames, tips):
                 cv2.circle(annotated, tuple(int(round(x)) for x in tips[c]), 10, (0, 165, 255), 2)
             cv2.imwrite(os.path.join(folder, f"cam{c}_annot.jpg"), annotated)
     json.dump(event, open(os.path.join(folder, "meta.json"), "w"), indent=2)
+    prune_dataset()
+
+
+def prune_dataset(keep=KEEP_EVENTS):
+    """Ne garde que les `keep` événements les plus récents sur disque.
+    Les noms de dossier commencent par la date/heure -> tri chronologique."""
+    try:
+        folders = sorted(d for d in os.listdir(DATASET_DIR)
+                         if os.path.isdir(os.path.join(DATASET_DIR, d)))
+    except FileNotFoundError:
+        return
+    for old in folders[:-keep]:
+        shutil.rmtree(os.path.join(DATASET_DIR, old), ignore_errors=True)
 
 
 def detection_loop():
@@ -246,7 +262,7 @@ def detection_loop():
                 state["next_id"] += 1
                 save_event(event, ref_frames, frames, tips)
                 state["events"].insert(0, event)
-                del state["events"][30:]
+                del state["events"][KEEP_EVENTS:]
 
             # dans tous les cas : la scène actuelle devient la référence
             ref_frames, ref_grays = frames, grays
