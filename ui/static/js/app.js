@@ -424,13 +424,6 @@ function renderClockMain(state) {
   const targetLabel = target === "bull" ? "BULL" : target;
   const remaining = 3 - state.current_throws.length;
 
-  // parcours
-  const parcours = CLOCK_SEQ.map((s, i) => {
-    const label = s === "bull" ? "B" : s;
-    const cls = i < safeIdx ? "done" : i === safeIdx ? "current" : "";
-    return `<div class="pc-cell ${cls}">${label}</div>`;
-  }).join("");
-
   // classement par progression
   const ranked = state.players
     .map(p => ({ name: p.name, prog: p.state.target_idx }))
@@ -449,14 +442,62 @@ function renderClockMain(state) {
         <span class="dart-chip">${remaining} restante${remaining > 1 ? "s" : ""}</span>
       </div>
     </div>
-    <div class="gm-panel side-col">
-      <span class="eyebrow">Parcours</span>
-      <div class="parcours">${parcours}</div>
+    <div class="gm-panel side-col" style="flex:1.2">
+      <span class="eyebrow">Cible</span>
+      <div class="clock-board">${drawClockDartboard(target)}</div>
     </div>
     <div class="gm-panel side-col">
       <span class="eyebrow">Classement</span>
       ${classement}
     </div>`;
+}
+
+function drawClockDartboard(targetSector) {
+  const DB_SECTORS = [20,1,18,4,13,6,10,15,2,17,3,19,7,16,8,11,14,9,12,5];
+  const CX = 200, CY = 200;
+  const R_BULL   = 6,  R_OBULL = 16;
+  const R_TRI_IN = 90, R_TRI_OUT = 100;
+  const R_DBL_IN = 147, R_DBL_OUT = 155;
+  const R_LABEL  = 171;
+
+  const toRad = d => d * Math.PI / 180;
+  function arc(r1, r2, a1, a2) {
+    const r1a = toRad(a1), r2a = toRad(a2);
+    const x1 = CX+r1*Math.cos(r1a), y1 = CY+r1*Math.sin(r1a);
+    const x2 = CX+r1*Math.cos(r2a), y2 = CY+r1*Math.sin(r2a);
+    const x3 = CX+r2*Math.cos(r2a), y3 = CY+r2*Math.sin(r2a);
+    const x4 = CX+r2*Math.cos(r1a), y4 = CY+r2*Math.sin(r1a);
+    return `M${x1},${y1} A${r1},${r1} 0 0,1 ${x2},${y2} L${x3},${y3} A${r2},${r2} 0 0,0 ${x4},${y4}Z`;
+  }
+
+  let html = `<svg viewBox="0 0 400 400" xmlns="http://www.w3.org/2000/svg">`;
+  html += `<circle cx="${CX}" cy="${CY}" r="${R_DBL_OUT+16}" fill="#0d0d0d"/>`;
+
+  DB_SECTORS.forEach((sec, i) => {
+    const a1 = -90 + i*18 - 9, a2 = a1 + 18;
+    const isTarget = sec === targetSector;
+    const even     = i % 2 === 0;
+    const singleC  = isTarget ? "#d62828" : (even ? "#1c1c1c" : "#e8e0cf");
+    const ringC    = isTarget ? "#39ff8c" : (even ? "#c0392b" : "#27ae60");
+    html += `<path d="${arc(R_OBULL, R_TRI_IN,  a1, a2)}" fill="${singleC}" stroke="#000" stroke-width="0.4"/>`;
+    html += `<path d="${arc(R_TRI_IN, R_TRI_OUT, a1, a2)}" fill="${ringC}"   stroke="#000" stroke-width="0.4"/>`;
+    html += `<path d="${arc(R_TRI_OUT, R_DBL_IN, a1, a2)}" fill="${singleC}" stroke="#000" stroke-width="0.4"/>`;
+    html += `<path d="${arc(R_DBL_IN, R_DBL_OUT, a1, a2)}" fill="${ringC}"   stroke="#000" stroke-width="0.4"/>`;
+    const la = toRad(-90 + i*18);
+    const lx = CX + R_LABEL*Math.cos(la), ly = CY + R_LABEL*Math.sin(la);
+    const lSize = isTarget ? 16 : 12;
+    const lFill = isTarget ? "#39ff8c" : "#e0e0e0";
+    html += `<text x="${lx.toFixed(1)}" y="${ly.toFixed(1)}" text-anchor="middle" dominant-baseline="middle" font-size="${lSize}" font-weight="${isTarget ? "bold" : "normal"}" fill="${lFill}">${sec}</text>`;
+  });
+
+  const bullTarget = targetSector === "bull";
+  html += `<circle cx="${CX}" cy="${CY}" r="${R_OBULL}" fill="${bullTarget ? "#39ff8c" : "#27ae60"}" stroke="#000" stroke-width="0.5"/>`;
+  html += `<circle cx="${CX}" cy="${CY}" r="${R_BULL}"  fill="${bullTarget ? "#d62828" : "#c0392b"}" stroke="#000" stroke-width="0.5"/>`;
+  if (bullTarget) {
+    html += `<text x="${CX}" y="${CY}" text-anchor="middle" dominant-baseline="middle" font-size="8" font-weight="bold" fill="#fff">BULL</text>`;
+  }
+  html += `</svg>`;
+  return html;
 }
 
 // ---- Cricket ----

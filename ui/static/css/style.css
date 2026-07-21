@@ -221,6 +221,10 @@ input:focus { outline: none; border-color: var(--green); }
 .pc-cell.done { background: rgba(57,255,140,.13); border-color: var(--green); color: var(--green); }
 .pc-cell.current { background: rgba(214,40,40,.2); border: 1.5px solid var(--red); color: #fff; font-weight: 800; }
 
+/* Cible SVG (horloge) */
+.clock-board { display: flex; justify-content: center; }
+.clock-board svg { width: 100%; height: auto; max-width: 240px; display: block; }
+
 /* Tableau cricket */
 .cricket-table { display: grid; gap: 1px; background: var(--line); border-radius: 8px; overflow: hidden; }
 .ct-cell { background: var(--panel); padding: 12px 10px; text-align: center; font-weight: 800; }
