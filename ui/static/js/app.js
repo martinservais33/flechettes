@@ -10,6 +10,82 @@ let selectedMode = "501";
 let currentMultiplier = 1;
 let _clockLiveTarget = 1;
 
+// ---- Pause de fin de tour (récupération des fléchettes) ----
+const HOLD_SECONDS = 5;
+let _prevTurns = null;
+let _prevCurrent = null;
+let _holding = false;
+let _holdTimer = null;
+
+function countTurns(state) {
+  return state.players.reduce((s, p) => s + (p.history ? p.history.length : 0), 0);
+}
+function resetTracking(state) {
+  _prevTurns = countTurns(state);
+  _prevCurrent = state.current_player;
+}
+function clearHold() {
+  _holding = false;
+  if (_holdTimer) { clearInterval(_holdTimer); _holdTimer = null; }
+  const mp = document.getElementById("manual-panel");
+  if (mp) mp.classList.remove("dimmed");
+}
+
+// Point d'entrée unique pour appliquer un état reçu du serveur
+// (lancer local, validation, ou polling de synchro).
+function applyState(state) {
+  if (!state || state.error) return;
+  if (state.winner) { clearHold(); renderGame(state); showWin(state.winner); return; }
+
+  const turns = countTurns(state);
+  // Un tour vient de se terminer → pause pour récupérer les fléchettes
+  if (!_holding && _prevTurns !== null && turns > _prevTurns && _prevCurrent) {
+    const finisher = state.players.find(p => p.name === _prevCurrent);
+    resetTracking(state);
+    if (finisher && finisher.last_throws && finisher.last_throws.length > 0) {
+      startHold(state, finisher);
+      return;
+    }
+  }
+  if (_holding) return;            // affichage gelé pendant la pause
+  renderGame(state);
+  resetTracking(state);
+}
+
+function startHold(state, finisher) {
+  _holding = true;
+  document.getElementById("manual-panel").classList.add("dimmed");
+  renderRecap(state, finisher);
+  let remaining = HOLD_SECONDS;
+  _holdTimer = setInterval(() => {
+    remaining--;
+    const el = document.getElementById("recap-count");
+    if (el) el.textContent = remaining;
+    if (remaining <= 0) endHold();
+  }, 1000);
+}
+
+async function endHold() {
+  clearHold();
+  applyState(await api("GET", "/api/state"));
+}
+
+function renderRecap(state, finisher) {
+  document.getElementById("game-mode-label").textContent = modeLabel(state.mode);
+  renderScoreboard(state, { active: finisher.name, live: false });
+  const chips = (finisher.last_throws || []).map(t =>
+    `<span class="dart-chip ${t.zone === "miss" ? "miss" : "hit"}">${dartLabel(t)}</span>`).join("");
+  document.getElementById("game-main").innerHTML =
+    `<div class="gm-panel center-col" style="flex:1">
+      <div class="turn-label">FIN DU TOUR</div>
+      <div class="turn-name">${finisher.name}</div>
+      <div style="font-size:clamp(2.4rem,8vw,5.5rem);font-weight:900;line-height:1;color:#fff">${playerValue(state.mode, finisher.state)}</div>
+      <div class="dart-chips">${chips}</div>
+      <div class="recap-hint">🎯 Récupérez les fléchettes · <span id="recap-count">${HOLD_SECONDS}</span> s</div>
+    </div>`;
+  document.getElementById("edit-score-card").style.display = "none";
+}
+
 // ---- Écrans ----
 function showScreen(id) {
   document.querySelectorAll(".screen").forEach(s => s.classList.remove("active"));
@@ -36,7 +112,9 @@ async function resumeGame() {
 }
 
 function enterGame(state) {
+  clearHold();
   renderGame(state);
+  resetTracking(state);
   showScreen("screen-game");
 }
 
@@ -201,20 +279,22 @@ function throwBull() {
 }
 
 async function throwDart(score, sector, multiplier, zone) {
+  if (_holding) return;   // ignore les tirs pendant la pause de fin de tour
   const res = await api("POST", "/api/throw", { score, sector, multiplier, zone });
-  renderGame(res.state);
-  if (res.result === "win") showWin(res.state.winner);
+  applyState(res.state);
 }
 
 async function endTurn() {
+  if (_holding) return;
   const res = await api("POST", "/api/end_turn");
-  renderGame(res.state);
-  if (res.result === "win") showWin(res.state.winner);
+  applyState(res.state);
 }
 
 async function undoDart() {
+  clearHold();
   const res = await api("POST", "/api/undo_dart");
   renderGame(res.state);
+  resetTracking(res.state);
 }
 
 // ============================================================
@@ -236,17 +316,24 @@ function renderGame(state) {
   }
 }
 
-function renderScoreboard(state) {
+function playerValue(mode, st) {
+  if (mode === "cricket") return `${st.score} pts`;
+  if (mode === "clock")   return clockTargetLabel(st.target_idx);
+  return st.score;
+}
+
+// opts.active : nom du joueur mis en avant (défaut = joueur courant)
+// opts.live   : utiliser l'état live pour ce joueur (défaut true)
+function renderScoreboard(state, opts = {}) {
+  const activeName = opts.active || state.current_player;
+  const useLive = opts.live !== false;
   const sb = document.getElementById("scoreboard");
   sb.innerHTML = state.players.map(p => {
-    const active = p.name === state.current_player;
-    let value;
-    if (state.mode === "cricket")     value = `${p.state.score} pts`;
-    else if (state.mode === "clock")  value = clockTargetLabel(p.state.target_idx);
-    else                              value = p.state.score;
+    const active = p.name === activeName;
+    const st = (active && useLive && state.current_live_state) ? state.current_live_state : p.state;
     return `<div class="ps-card ${active ? "active" : ""}">
       <div class="ps-name">${p.name}</div>
-      <div class="ps-value">${value}</div>
+      <div class="ps-value">${playerValue(state.mode, st)}</div>
     </div>`;
   }).join("");
 }
@@ -307,12 +394,13 @@ function renderX01Main(state) {
     best = Math.max(best, s); total += s; count++;
   });
   const avg = count ? (total / count).toFixed(1) : "—";
+  const live = state.current_live_state || cp.state;
 
   return flightColumn(state) +
     `<div class="gm-panel center-col">
       <div class="turn-label">AU TOUR DE</div>
       <div class="turn-name">${cp.name}</div>
-      <div class="turn-score">${cp.state.score}</div>
+      <div class="turn-score">${live.score}</div>
       ${throwChips(state)}
     </div>
     <div class="gm-panel side-col">
@@ -383,7 +471,9 @@ function renderCricketMain(state) {
   const rows = TARGETS.map(t => {
     const label = t === 25 ? "BULL" : t;
     const cells = state.players.map(p => {
-      const m = (p.state.marks && p.state.marks[t]) || 0;
+      const marks = (p.name === state.current_player && state.current_live_state)
+        ? state.current_live_state.marks : p.state.marks;
+      const m = (marks && marks[t]) || 0;
       const closed = m >= 3;
       const txt = m === 0 ? "—" : "✕".repeat(m);
       return `<div class="ct-cell ct-marks ${closed ? "closed" : ""} ${m === 0 ? "none" : ""}">${txt}</div>`;
@@ -526,9 +616,7 @@ async function loadStats() {
 setInterval(async () => {
   const screen = document.querySelector(".screen.active");
   if (!screen || screen.id !== "screen-game") return;
-  const res = await api("GET", "/api/state");
-  if (res.error) return;
-  renderGame(res);
+  applyState(await api("GET", "/api/state"));
 }, 2000);
 
 // ============================================================
@@ -614,6 +702,7 @@ loadSavedPlayers();
   const res = await api("GET", "/api/state");
   if (!res.error) {
     renderGame(res);
+    resetTracking(res);
     showScreen(res.winner ? "screen-win" : "screen-game");
     if (res.winner) document.getElementById("winner-name").textContent = res.winner;
   }

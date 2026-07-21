@@ -167,12 +167,16 @@ class Game:
                 for i, p in enumerate(self.players)
             ],
         }
-        # Pour le mode horloge, expose la cible live du joueur courant
-        # (intègre les lancers en cours du tour, pas encore validés)
-        if self.mode == "clock":
-            live, _ = self.rules.apply_turn(
-                dict(self.states[self.current_idx]),
-                self.turn_throws
+        # État "live" du joueur courant : intègre les lancers du tour en cours
+        # (pas encore validés) pour afficher le score/les marques à chaque flèche.
+        idx = self.current_idx
+        if self.mode == "cricket":
+            live_states, _ = self.rules.apply_turn(
+                [{"marks": dict(s["marks"]), "score": s["score"]} for s in self.states],
+                idx, self.turn_throws
             )
+            view["current_live_state"] = live_states[idx]
+        else:
+            live, _ = self.rules.apply_turn(dict(self.states[idx]), self.turn_throws)
             view["current_live_state"] = live
         return view

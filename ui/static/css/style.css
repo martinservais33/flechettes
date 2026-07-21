@@ -201,6 +201,10 @@ input:focus { outline: none; border-color: var(--green); }
 .dart-chip.hit { border-color: var(--green); color: var(--green); }
 .dart-chip.miss { color: var(--muted2); }
 
+/* Pause de fin de tour */
+.recap-hint { margin-top: 14px; font-size: .9rem; font-weight: 700; color: var(--cyan); }
+.manual-panel.dimmed { opacity: .35; pointer-events: none; }
+
 /* Colonne stats / classement */
 .side-col { flex: 1; min-width: 130px; }
 .stat-line, .rank-line { display: flex; justify-content: space-between; gap: 8px; font-size: .85rem; font-weight: 600; }
