@@ -73,17 +73,19 @@ async function endHold() {
 function renderRecap(state, finisher, bust) {
   document.getElementById("game-mode-label").textContent = modeLabel(state.mode);
   renderScoreboard(state, { active: finisher.name, live: false });
-  const chips = (finisher.last_throws || []).map(t =>
-    `<span class="dart-chip ${t.zone === "miss" ? "miss" : "hit"}">${dartLabel(t)}</span>`).join("");
+  const chips = (finisher.last_throws || []).map((t, i) => {
+    const last = i === (finisher.last_throws.length - 1);
+    return `<span class="dart-chip ${t.zone === "miss" ? "miss" : ""} ${last ? "latest" : ""}">${dartLabel(t)}</span>`;
+  }).join("");
   const label = bust
-    ? `<div class="turn-label" style="color:var(--red)">BUST — TOUR PERDU</div>`
+    ? `<div class="turn-label" style="color:#ff6b6b">BUST — TOUR PERDU</div>`
     : `<div class="turn-label">FIN DU TOUR</div>`;
   document.getElementById("game-main").innerHTML =
     `<div class="gm-panel center-col" style="flex:1">
       ${label}
       <div class="turn-name">${finisher.name}</div>
-      <div style="font-size:clamp(2.4rem,8vw,5.5rem);font-weight:900;line-height:1;color:${bust ? "var(--red)" : "#fff"}">${playerValue(state.mode, finisher.state)}</div>
-      <div class="dart-chips">${chips}</div>
+      <div style="font-family:var(--disp);font-size:clamp(2.4rem,8vw,5.5rem);line-height:1;color:${bust ? "#ff6b6b" : "#fff"}">${playerValue(state.mode, finisher.state)}</div>
+      <div class="dart-row">${chips}</div>
       <div class="recap-hint">🎯 Récupérez les fléchettes · <span id="recap-count">${HOLD_SECONDS}</span> s</div>
     </div>`;
   document.getElementById("edit-score-card").style.display = "none";
@@ -229,12 +231,14 @@ async function startGame() {
 function buildSectorsGrid(state) {
   const mode = state.mode;
   const grid = document.getElementById("sectors-grid");
-  let cells;
-  if (mode === "cricket") {
-    cells = [15,16,17,18,19,20];
-  } else {
-    cells = [...Array(20)].map((_, i) => i + 1);
-  }
+  const cricket = mode === "cricket";
+  const cells = cricket ? [15,16,17,18,19,20] : [...Array(20)].map((_, i) => i + 1);
+  const narrow = window.innerWidth < 760;
+
+  // colonnes : dense sur écran large, moins sur mobile
+  grid.style.gridTemplateColumns = cricket
+    ? `repeat(${narrow ? 4 : 8}, 1fr)`
+    : `repeat(${narrow ? 6 : 11}, 1fr)`;
 
   // cible courante (horloge) pour la mise en évidence
   let target = null;
@@ -245,11 +249,11 @@ function buildSectorsGrid(state) {
   }
 
   let html = cells.map(s => {
-    const isTarget = target === s;
-    return `<button class="sector-btn ${isTarget ? "target" : ""}" onclick="throwSector(${s})">${s}</button>`;
+    const cls = target === s ? "target" : (s === 20 ? "hot" : "");
+    return `<button class="sector-btn ${cls}" onclick="throwSector(${s})">${s}</button>`;
   }).join("");
-  const bullTarget = target === "bull";
-  html += `<button class="sector-btn bull ${bullTarget ? "target" : ""}" onclick="throwBull()">BULL</button>`;
+  html += `<button class="sector-btn bull ${target === "bull" ? "target" : ""}" onclick="throwBull()">BULL</button>`;
+  html += `<button class="sector-btn miss" onclick="throwDart(0,0,0,'miss')">MISS</button>`;
   grid.innerHTML = html;
 }
 
@@ -362,29 +366,15 @@ function currentPlayer(state) {
   return state.players.find(p => p.name === state.current_player) || state.players[0];
 }
 
-// ---- Colonne volée (3 fléchettes) ----
-function flightColumn(state, footer) {
+// ---- Fléchettes du tour, la dernière mise en avant ----
+function dartRow(state) {
   const throws = state.current_throws;
-  const slots = [0,1,2].map(i => {
-    const t = throws[i];
-    if (t) return `<div class="flight-slot filled">${dartLabel(t)}</div>`;
-    return `<div class="flight-slot dashed">en attente…</div>`;
-  }).join("");
-  const total = throws.reduce((s, t) => s + t.score, 0);
-  return `<div class="gm-panel flight-col">
-    <span class="eyebrow">Fléchettes — volée</span>
-    <div class="flight-slots">${slots}</div>
-    ${footer || `<div class="flight-total">Total volée : <b>${total}</b></div>`}
-  </div>`;
-}
-
-// ---- Chips des lancers du tour ----
-function throwChips(state) {
-  const throws = state.current_throws;
-  if (throws.length === 0) return `<div class="dart-chips"></div>`;
-  return `<div class="dart-chips">` + throws.map(t =>
-    `<span class="dart-chip ${t.zone === "miss" ? "miss" : "hit"}">${dartLabel(t)}</span>`
-  ).join("") + `</div>`;
+  if (throws.length === 0) return `<div class="dart-row"></div>`;
+  return `<div class="dart-row">` + throws.map((t, i) => {
+    const last = i === throws.length - 1;
+    const miss = t.zone === "miss";
+    return `<span class="dart-chip ${miss ? "miss" : ""} ${last ? "latest" : ""}">${dartLabel(t)}</span>`;
+  }).join("") + `</div>`;
 }
 
 // ---- X01 ----
@@ -399,12 +389,11 @@ function renderX01Main(state) {
   const avg = count ? (total / count).toFixed(1) : "—";
   const live = state.current_live_state || cp.state;
 
-  return flightColumn(state) +
-    `<div class="gm-panel center-col">
+  return `<div class="gm-panel center-col">
       <div class="turn-label">AU TOUR DE</div>
       <div class="turn-name">${cp.name}</div>
       <div class="turn-score">${live.score}</div>
-      ${throwChips(state)}
+      ${dartRow(state)}
     </div>
     <div class="gm-panel side-col">
       <span class="eyebrow">Stats</span>
@@ -435,15 +424,18 @@ function renderClockMain(state) {
     `<div class="rank-line ${i === 0 ? "" : "dim"}"><span>${r.name}</span><span>${r.prog}/21</span></div>`
   ).join("");
 
+  // "TOUCHÉ" si la cible a avancé ce tour (état live > état validé)
+  const touched = safeIdx > cp.state.target_idx;
+  const badge = touched
+    ? `<div class="clock-hit ok">TOUCHÉ</div>`
+    : `<div class="clock-hit wait">${remaining} fléchette${remaining > 1 ? "s" : ""}</div>`;
+
   return `<div class="gm-panel center-col" style="flex:1.3">
       <div class="turn-label">AU TOUR DE</div>
       <div class="turn-name">${cp.name}</div>
       <div class="turn-label" style="margin-top:8px">PROCHAINE CIBLE</div>
       <div class="turn-target">${targetLabel}</div>
-      <div class="dart-chips">
-        <span class="dart-chip">${state.current_throws.length}/3 lancées</span>
-        <span class="dart-chip">${remaining} restante${remaining > 1 ? "s" : ""}</span>
-      </div>
+      ${badge}
     </div>
     <div class="gm-panel side-col" style="flex:1.2">
       <span class="eyebrow">Cible</span>
@@ -474,14 +466,14 @@ function drawClockDartboard(targetSector) {
   }
 
   let html = `<svg viewBox="0 0 400 400" xmlns="http://www.w3.org/2000/svg">`;
-  html += `<circle cx="${CX}" cy="${CY}" r="${R_DBL_OUT+16}" fill="#0d0d0d"/>`;
+  html += `<circle cx="${CX}" cy="${CY}" r="${R_DBL_OUT+16}" fill="#0d0620"/>`;
 
   DB_SECTORS.forEach((sec, i) => {
     const a1 = -90 + i*18 - 9, a2 = a1 + 18;
     const isTarget = sec === targetSector;
     const even     = i % 2 === 0;
-    const singleC  = isTarget ? "#d62828" : (even ? "#1c1c1c" : "#e8e0cf");
-    const ringC    = isTarget ? "#39ff8c" : (even ? "#c0392b" : "#27ae60");
+    const singleC  = isTarget ? "#ffd23f" : (even ? "#1c1c1c" : "#e8e0cf");
+    const ringC    = isTarget ? "#ff3cac" : (even ? "#c0392b" : "#27ae60");
     html += `<path d="${arc(R_OBULL, R_TRI_IN,  a1, a2)}" fill="${singleC}" stroke="#000" stroke-width="0.4"/>`;
     html += `<path d="${arc(R_TRI_IN, R_TRI_OUT, a1, a2)}" fill="${ringC}"   stroke="#000" stroke-width="0.4"/>`;
     html += `<path d="${arc(R_TRI_OUT, R_DBL_IN, a1, a2)}" fill="${singleC}" stroke="#000" stroke-width="0.4"/>`;
@@ -489,13 +481,13 @@ function drawClockDartboard(targetSector) {
     const la = toRad(-90 + i*18);
     const lx = CX + R_LABEL*Math.cos(la), ly = CY + R_LABEL*Math.sin(la);
     const lSize = isTarget ? 16 : 12;
-    const lFill = isTarget ? "#39ff8c" : "#e0e0e0";
+    const lFill = isTarget ? "#ff3cac" : "#e0e0e0";
     html += `<text x="${lx.toFixed(1)}" y="${ly.toFixed(1)}" text-anchor="middle" dominant-baseline="middle" font-size="${lSize}" font-weight="${isTarget ? "bold" : "normal"}" fill="${lFill}">${sec}</text>`;
   });
 
   const bullTarget = targetSector === "bull";
-  html += `<circle cx="${CX}" cy="${CY}" r="${R_OBULL}" fill="${bullTarget ? "#39ff8c" : "#27ae60"}" stroke="#000" stroke-width="0.5"/>`;
-  html += `<circle cx="${CX}" cy="${CY}" r="${R_BULL}"  fill="${bullTarget ? "#d62828" : "#c0392b"}" stroke="#000" stroke-width="0.5"/>`;
+  html += `<circle cx="${CX}" cy="${CY}" r="${R_OBULL}" fill="${bullTarget ? "#ffd23f" : "#27ae60"}" stroke="#000" stroke-width="0.5"/>`;
+  html += `<circle cx="${CX}" cy="${CY}" r="${R_BULL}"  fill="${bullTarget ? "#ff3cac" : "#c0392b"}" stroke="#000" stroke-width="0.5"/>`;
   if (bullTarget) {
     html += `<text x="${CX}" y="${CY}" text-anchor="middle" dominant-baseline="middle" font-size="8" font-weight="bold" fill="#fff">BULL</text>`;
   }
@@ -525,14 +517,11 @@ function renderCricketMain(state) {
     return `<div class="ct-cell ct-num">${label}</div>` + cells;
   }).join("");
 
-  const table = `<div class="gm-panel" style="flex:1">
-    <div class="cricket-table" style="grid-template-columns:1fr repeat(${cols}, minmax(60px,1fr))">
+  return `<div class="gm-panel" style="flex:1">
+    <div class="cricket-table" style="grid-template-columns:1.2fr repeat(${cols}, minmax(60px,1fr))">
       ${headCells}${rows}
     </div>
   </div>`;
-
-  const footer = `<div class="flight-total">Au tour de <b>${state.current_player}</b></div>`;
-  return flightColumn(state, footer) + table;
 }
 
 // ---- Correction de score ----
