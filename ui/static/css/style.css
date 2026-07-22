@@ -332,9 +332,11 @@ input:focus { outline: none; border-color: var(--yellow); }
 }
 .anim-overlay.show { display: flex; opacity: 1; }
 .anim-media {
-  max-width: 82vw; max-height: 72vh;
-  border-radius: 16px; border: 4px solid var(--yellow);
-  box-shadow: 0 0 46px rgba(255,60,220,.7);
+  width: min(92vw, 1200px);      /* agrandi pour remplir l'écran */
+  height: auto;
+  max-height: 88vh;
+  border-radius: 18px; border: 5px solid var(--yellow);
+  box-shadow: 0 0 70px rgba(255,60,220,.8);
 }
 
 /* ============================================================
