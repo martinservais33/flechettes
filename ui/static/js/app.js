@@ -16,7 +16,7 @@ let _clockLiveTarget = 1;
 //  Ajouter une anim = déposer le fichier dans /static/animations/
 //  et ajouter une ligne dans manifest.json.
 // ============================================================
-const ANIM_DURATION = 2800;   // ms d'affichage
+const ANIM_DURATION = 3500;   // ms d'affichage
 let ANIM_MANIFEST = {};
 const _animQueue = [];
 let _animTimer = null;
