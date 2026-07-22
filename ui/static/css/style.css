@@ -322,6 +322,22 @@ input:focus { outline: none; border-color: var(--yellow); }
 .vkb-ok { flex: 2; max-width: 120px; background: var(--green); color: var(--ink); }
 
 /* ============================================================
+   OVERLAY D'ANIMATIONS
+   ============================================================ */
+.anim-overlay {
+  position: fixed; inset: 0; z-index: 3000;
+  display: none; align-items: center; justify-content: center;
+  background: rgba(10,6,20,.78);
+  opacity: 0; transition: opacity .25s;
+}
+.anim-overlay.show { display: flex; opacity: 1; }
+.anim-media {
+  max-width: 82vw; max-height: 72vh;
+  border-radius: 16px; border: 4px solid var(--yellow);
+  box-shadow: 0 0 46px rgba(255,60,220,.7);
+}
+
+/* ============================================================
    RESPONSIVE
    ============================================================ */
 @media (max-width: 760px) {

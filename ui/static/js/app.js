@@ -10,6 +10,52 @@ let selectedMode = "501";
 let currentMultiplier = 1;
 let _clockLiveTarget = 1;
 
+// ============================================================
+//  Moteur d'animations (GIF sur scores spéciaux)
+//  Manifeste : événement -> liste de fichiers (tiré au hasard).
+//  Ajouter une anim = déposer le fichier dans /static/animations/
+//  et ajouter une ligne dans manifest.json.
+// ============================================================
+const ANIM_DURATION = 2800;   // ms d'affichage
+let ANIM_MANIFEST = {};
+const _animQueue = [];
+let _animTimer = null;
+
+(async () => {
+  try { ANIM_MANIFEST = await (await fetch("/static/animations/manifest.json")).json(); }
+  catch (e) { ANIM_MANIFEST = {}; }
+})();
+
+function triggerAnimation(eventType) {
+  const files = ANIM_MANIFEST[eventType];
+  if (!files || !files.length) return;
+  _animQueue.push(files[Math.floor(Math.random() * files.length)]);
+  if (!_animTimer) playNextAnimation();
+}
+
+function playNextAnimation() {
+  const overlay = document.getElementById("anim-overlay");
+  if (!_animQueue.length) { overlay.classList.remove("show"); overlay.innerHTML = ""; _animTimer = null; return; }
+  const file = _animQueue.shift();
+  // élément créé à la demande puis retiré → mémoire stable même avec beaucoup de GIF
+  overlay.innerHTML = `<img class="anim-media" src="/static/animations/${encodeURIComponent(file)}" alt="">`;
+  overlay.classList.add("show");
+  _animTimer = setTimeout(playNextAnimation, ANIM_DURATION);
+}
+
+function dismissAnimation() {
+  if (_animTimer) { clearTimeout(_animTimer); _animTimer = null; }
+  playNextAnimation();
+}
+
+// Détecte les événements spéciaux d'un tour terminé (extensible).
+function detectAnimations(finisher, bust) {
+  if (bust) return;
+  const total = (finisher.last_throws || []).reduce((s, t) => s + t.score, 0);
+  if (total >= 100) triggerAnimation("volee_100plus");
+  // à venir : 180 exact, bullseye, checkout, cricket fermé, etc.
+}
+
 // ---- Pause de fin de tour (récupération des fléchettes) ----
 const HOLD_SECONDS = 5;
 let _prevTurns = null;
@@ -43,6 +89,7 @@ function applyState(state, bust = false) {
     const finisher = state.players.find(p => p.name === _prevCurrent);
     resetTracking(state);
     if (finisher && finisher.last_throws && finisher.last_throws.length > 0) {
+      detectAnimations(finisher, bust);
       startHold(state, finisher, bust);
       return;
     }
