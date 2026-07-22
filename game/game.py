@@ -59,6 +59,12 @@ class Game:
         if result == "win":
             return self._end_turn()
 
+        # Dépassement (bust) : le tour s'arrête immédiatement, le score
+        # revient à sa valeur de début de tour, on passe au joueur suivant.
+        if result == "bust":
+            self._end_turn()
+            return "bust"
+
         if len(self.turn_throws) == 3:
             return self._end_turn()
 

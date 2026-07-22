@@ -191,6 +191,10 @@ def undo_dart():
     if err:
         return err, code
     ok = game.undo_dart()
+    # Si on vient d'annuler une victoire, la partie archivée redevient
+    # "non terminée" : on met à jour son enregistrement (upsert par archive_id).
+    if ok and getattr(game, "archive_id", None) and not game.winner:
+        archive_game(game)
     return jsonify({"ok": ok, "state": game.state_view()})
 
 

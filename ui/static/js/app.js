@@ -33,7 +33,7 @@ function clearHold() {
 
 // Point d'entrée unique pour appliquer un état reçu du serveur
 // (lancer local, validation, ou polling de synchro).
-function applyState(state) {
+function applyState(state, bust = false) {
   if (!state || state.error) return;
   if (state.winner) { clearHold(); renderGame(state); showWin(state.winner); return; }
 
@@ -43,7 +43,7 @@ function applyState(state) {
     const finisher = state.players.find(p => p.name === _prevCurrent);
     resetTracking(state);
     if (finisher && finisher.last_throws && finisher.last_throws.length > 0) {
-      startHold(state, finisher);
+      startHold(state, finisher, bust);
       return;
     }
   }
@@ -52,10 +52,10 @@ function applyState(state) {
   resetTracking(state);
 }
 
-function startHold(state, finisher) {
+function startHold(state, finisher, bust) {
   _holding = true;
   document.getElementById("manual-panel").classList.add("dimmed");
-  renderRecap(state, finisher);
+  renderRecap(state, finisher, bust);
   let remaining = HOLD_SECONDS;
   _holdTimer = setInterval(() => {
     remaining--;
@@ -70,16 +70,19 @@ async function endHold() {
   applyState(await api("GET", "/api/state"));
 }
 
-function renderRecap(state, finisher) {
+function renderRecap(state, finisher, bust) {
   document.getElementById("game-mode-label").textContent = modeLabel(state.mode);
   renderScoreboard(state, { active: finisher.name, live: false });
   const chips = (finisher.last_throws || []).map(t =>
     `<span class="dart-chip ${t.zone === "miss" ? "miss" : "hit"}">${dartLabel(t)}</span>`).join("");
+  const label = bust
+    ? `<div class="turn-label" style="color:var(--red)">BUST — TOUR PERDU</div>`
+    : `<div class="turn-label">FIN DU TOUR</div>`;
   document.getElementById("game-main").innerHTML =
     `<div class="gm-panel center-col" style="flex:1">
-      <div class="turn-label">FIN DU TOUR</div>
+      ${label}
       <div class="turn-name">${finisher.name}</div>
-      <div style="font-size:clamp(2.4rem,8vw,5.5rem);font-weight:900;line-height:1;color:#fff">${playerValue(state.mode, finisher.state)}</div>
+      <div style="font-size:clamp(2.4rem,8vw,5.5rem);font-weight:900;line-height:1;color:${bust ? "var(--red)" : "#fff"}">${playerValue(state.mode, finisher.state)}</div>
       <div class="dart-chips">${chips}</div>
       <div class="recap-hint">🎯 Récupérez les fléchettes · <span id="recap-count">${HOLD_SECONDS}</span> s</div>
     </div>`;
@@ -281,7 +284,7 @@ function throwBull() {
 async function throwDart(score, sector, multiplier, zone) {
   if (_holding) return;   // ignore les tirs pendant la pause de fin de tour
   const res = await api("POST", "/api/throw", { score, sector, multiplier, zone });
-  applyState(res.state);
+  applyState(res.state, res.result === "bust");
 }
 
 async function endTurn() {
@@ -555,6 +558,16 @@ async function applyScoreEdit(idx) {
 function showWin(name) {
   document.getElementById("winner-name").textContent = name;
   showScreen("screen-win");
+}
+
+// Annuler la fléchette gagnante (erreur de saisie) et reprendre la partie
+async function undoFromWin() {
+  const res = await api("POST", "/api/undo_dart");
+  if (res.error || res.state.error) return;
+  clearHold();
+  renderGame(res.state);
+  resetTracking(res.state);
+  showScreen("screen-game");
 }
 
 // ============================================================
