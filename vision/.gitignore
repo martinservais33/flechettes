@@ -1,3 +1,11 @@
-dataset/
+# Sorties de debug (rejeux, captures, dataset)
+replay*/
 snapshots/
-replay_out/
+dataset/
+
+# Configs propres à chaque installation (générées par la calibration / les réglages)
+# — ne jamais versionner : le Pi a les siennes, un pull ne doit pas les écraser
+calibration.json
+rotations.json
+surface.json
+roi.json
