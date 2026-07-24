@@ -16,7 +16,7 @@ let _clockLiveTarget = 1;
 //  Ajouter une anim = déposer le fichier dans /static/animations/
 //  et ajouter une ligne dans manifest.json.
 // ============================================================
-const ANIM_DURATION = 3500;   // ms d'affichage
+const ANIM_DEFAULT_MS = 4000;   // durée d'affichage par défaut (ms)
 let ANIM_MANIFEST = {};
 const _animQueue = [];
 let _animTimer = null;
@@ -26,21 +26,31 @@ let _animTimer = null;
   catch (e) { ANIM_MANIFEST = {}; }
 })();
 
+// Un événement peut être soit une liste de fichiers (durée par défaut),
+// soit un objet { files: [...], duration: ms } pour régler la durée.
+function animConfig(eventType) {
+  const v = ANIM_MANIFEST[eventType];
+  if (!v) return null;
+  if (Array.isArray(v)) return { files: v, duration: ANIM_DEFAULT_MS };
+  return { files: v.files || [], duration: v.duration || ANIM_DEFAULT_MS };
+}
+
 function triggerAnimation(eventType) {
-  const files = ANIM_MANIFEST[eventType];
-  if (!files || !files.length) return;
-  _animQueue.push(files[Math.floor(Math.random() * files.length)]);
+  const cfg = animConfig(eventType);
+  if (!cfg || !cfg.files.length) return;
+  const file = cfg.files[Math.floor(Math.random() * cfg.files.length)];
+  _animQueue.push({ file, duration: cfg.duration });
   if (!_animTimer) playNextAnimation();
 }
 
 function playNextAnimation() {
   const overlay = document.getElementById("anim-overlay");
   if (!_animQueue.length) { overlay.classList.remove("show"); overlay.innerHTML = ""; _animTimer = null; return; }
-  const file = _animQueue.shift();
+  const { file, duration } = _animQueue.shift();
   // élément créé à la demande puis retiré → mémoire stable même avec beaucoup de GIF
   overlay.innerHTML = `<img class="anim-media" src="/static/animations/${encodeURIComponent(file)}" alt="">`;
   overlay.classList.add("show");
-  _animTimer = setTimeout(playNextAnimation, ANIM_DURATION);
+  _animTimer = setTimeout(playNextAnimation, duration);
 }
 
 function dismissAnimation() {
