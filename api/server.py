@@ -154,6 +154,11 @@ def throw():
         "multiplier": request.json.get("multiplier", 1),
         "zone":       request.json.get("zone", "single"),
     }
+    # Coordonnées d'impact (mm) — présentes seulement pour les lancers caméra,
+    # utilisées par la cible de précision. Absentes en saisie manuelle.
+    if request.json.get("x") is not None and request.json.get("y") is not None:
+        dart["x"] = request.json["x"]
+        dart["y"] = request.json["y"]
     result = game.throw(dart)
     if result == "win":
         archive_game(game)

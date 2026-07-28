@@ -378,6 +378,40 @@ function renderGame(state) {
     editCard.style.display = "block";
     renderEditScores(state);
   }
+
+  renderImpactBoard(state);
+}
+
+// ---- Cible de précision : impacts caméra du joueur en cours ----
+function renderImpactBoard(state) {
+  const cp = currentPlayer(state);
+  // toutes les fléchettes du joueur en cours ayant des coordonnées (caméra) :
+  // tours validés (cp.history) + tour en cours (state.current_throws)
+  const darts = [];
+  (cp.history || []).forEach(turn => turn.forEach(t => {
+    if (t && t.x != null && t.y != null) darts.push(t);
+  }));
+  (state.current_throws || []).forEach(t => {
+    if (t && t.x != null && t.y != null) darts.push(t);
+  });
+
+  const label = document.getElementById("impact-name");
+  label.textContent = darts.length
+    ? `${cp.name} · ${darts.length} impact${darts.length > 1 ? "s" : ""}`
+    : `${cp.name} · aucun impact caméra`;
+  document.getElementById("impact-board").innerHTML = drawImpactBoard(darts);
+}
+
+function drawImpactBoard(darts) {
+  // cible neutre (aucune cible surlignée) réutilisée du mode horloge
+  const svg = drawClockDartboard(null);
+  const CX = 200, CY = 200, MM = 155 / 170;   // mm -> unités SVG (bord double = 170mm ↔ 155)
+  const dots = darts.map(t => {
+    const sx = (CX + t.x * MM).toFixed(1);
+    const sy = (CY - t.y * MM).toFixed(1);     // axe y inversé (SVG vers le bas)
+    return `<circle cx="${sx}" cy="${sy}" r="4.5" fill="#4de3ff" fill-opacity="0.75" stroke="#0d0620" stroke-width="1"/>`;
+  }).join("");
+  return svg.replace("</svg>", dots + "</svg>");
 }
 
 function playerValue(mode, st) {

@@ -271,7 +271,10 @@ def detection_loop():
                     if pred.get("doubtful"):
                         event["sent"] = "non envoyé (douteux)"
                     else:
-                        res = game_post("/throw", pred["throw"])
+                        # on joint les coordonnées de l'impact (mm) pour la
+                        # cible de précision côté jeu
+                        res = game_post("/throw", {**pred["throw"],
+                                                   "x": pred["x"], "y": pred["y"]})
                         if "error" in res:
                             event["sent"] = f"erreur jeu : {res['error']}"
                         else:
