@@ -87,18 +87,40 @@ def upright(frame, cam):
     return cv2.rotate(frame, ROTATE_CODES[rot]) if rot in ROTATE_CODES else frame
 
 
+def _open_camera_retry(index):
+    """Ouvre la caméra en réessayant tant qu'elle n'est pas prête.
+    Indispensable au boot : le service peut démarrer avant que les
+    caméras USB soient énumérées."""
+    while True:
+        cap = open_camera(index)
+        if cap is not None:
+            print(f"caméra {index} ouverte")
+            return cap
+        print(f"caméra {index} pas encore prête — nouvel essai dans 2 s…")
+        time.sleep(2)
+
+
 def capture_loop(index):
-    cap = open_camera(index)
-    if cap is None:
-        print(f"ERREUR : caméra {index}")
-        return
+    cap = _open_camera_retry(index)
+    fails = 0
     while True:
         ok, frame = cap.read()
         if ok:
             with _lock:
                 _frames[index] = upright(frame, index)
+            fails = 0
         else:
+            fails += 1
             time.sleep(0.05)
+            # caméra débranchée / plantée en cours de route : on la rouvre
+            if fails >= 100:
+                print(f"caméra {index} : lectures en échec, réouverture…")
+                try:
+                    cap.release()
+                except Exception:
+                    pass
+                cap = _open_camera_retry(index)
+                fails = 0
 
 
 def grab_grays():
