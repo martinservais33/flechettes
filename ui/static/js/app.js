@@ -3,6 +3,7 @@
 // ============================================================
 
 const CLOCK_SEQ = [1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,"bull"];
+const CRICKET_TARGETS = [15,16,17,18,19,20];
 
 let players = [];
 let savedPlayers = [];
@@ -59,15 +60,22 @@ function dismissAnimation() {
 }
 
 // Détecte les événements spéciaux d'un tour terminé (extensible).
-function detectAnimations(finisher, bust) {
+function detectAnimations(mode, finisher, bust) {
   if (bust) return;
-  const total = (finisher.last_throws || []).reduce((s, t) => s + t.score, 0);
+  const throws = finisher.last_throws || [];
+  const total = throws.reduce((s, t) => s + t.score, 0);
   if (total >= 100) triggerAnimation("volee_100plus");
-  // à venir : 180 exact, bullseye, checkout, cricket fermé, etc.
+  if (total === 67) triggerAnimation("score_67");
+  if (total < 5) triggerAnimation("score_bas");
+  if (mode === "cricket" && throws.length === 3 &&
+      throws.every(t => t.zone === "bull" || t.zone === "outer_bull" || CRICKET_TARGETS.includes(t.sector))) {
+    triggerAnimation("cricket_trois_points");
+  }
+  // à venir : 180 exact, bullseye, checkout fermé, etc.
 }
 
 // ---- Pause de fin de tour (récupération des fléchettes) ----
-const HOLD_SECONDS = 5;
+const HOLD_SECONDS = 3;
 let _prevTurns = null;
 let _prevCurrent = null;
 let _holding = false;
@@ -99,7 +107,7 @@ function applyState(state, bust = false) {
     const finisher = state.players.find(p => p.name === _prevCurrent);
     resetTracking(state);
     if (finisher && finisher.last_throws && finisher.last_throws.length > 0) {
-      detectAnimations(finisher, bust);
+      detectAnimations(state.mode, finisher, bust);
       startHold(state, finisher, bust);
       return;
     }

@@ -1,3 +1,6 @@
 {
-  "volee_100plus": { "files": ["wow.gif"], "duration": 6000 }
+  "volee_100plus": { "files": ["wow.gif"], "duration": 6000 },
+  "score_67": { "files": ["67.gif"], "duration": 6000 },
+  "score_bas": { "files": ["badrealbad.gif"], "duration": 6000 },
+  "cricket_trois_points": { "files": ["nailedit.gif"], "duration": 6000 }
 }
