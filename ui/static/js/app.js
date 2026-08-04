@@ -757,8 +757,17 @@ async function loadStats() {
 // ============================================================
 setInterval(async () => {
   const screen = document.querySelector(".screen.active");
-  if (!screen || screen.id !== "screen-game") return;
-  applyState(await api("GET", "/api/state"));
+  if (!screen) return;
+  if (screen.id === "screen-game") {
+    applyState(await api("GET", "/api/state"));
+    return;
+  }
+  // Accueil / victoire : détecte une partie démarrée depuis un autre appareil
+  // et y bascule automatiquement (pas besoin de recharger la page du Pi).
+  if (screen.id === "screen-home" || screen.id === "screen-win") {
+    const res = await api("GET", "/api/state");
+    if (!res.error && !res.winner) enterGame(res);
+  }
 }, 2000);
 
 // ============================================================
