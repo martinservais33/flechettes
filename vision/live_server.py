@@ -510,8 +510,71 @@ def api_calib_predict(event_id):
     event = next((e for e in state["events"] if e["id"] == event_id), None)
     if event is None:
         return jsonify({"error": "événement inconnu"}), 404
-    pos = calib_position(event["tips"], calib["fit"])
-    return jsonify({"x": round(pos[0], 1), "y": round(pos[1], 1)} if pos else {})
+    # tant qu'aucun ajustement n'existe (début de session, ou contrôle après
+    # application), c'est la calibration active qu'on veut voir à l'œuvre.
+    model = calib["fit"] or {"cams": CALIB}
+    pos = calib_position(event["tips"], model)
+    if not pos:
+        return jsonify({})
+    return jsonify({"x": round(pos[0], 1), "y": round(pos[1], 1),
+                    "source": "modèle en cours" if calib["fit"] else "calibration active"})
+
+
+_manual_ref = {}   # référence figée pour la capture d'une fléchette posée
+
+
+@app.route("/api/calib/manual_ref", methods=["POST"])
+def api_calib_manual_ref():
+    """Fige la cible VIDE comme référence, avant de poser une fléchette à la main."""
+    frames, grays = grab_grays()
+    if len(grays) < 2:
+        return jsonify({"error": "pas assez de caméras"}), 500
+    _manual_ref.clear()
+    _manual_ref.update({"grays": grays, "frames": frames})
+    return jsonify({"ok": True, "cams": sorted(grays)})
+
+
+@app.route("/api/calib/manual_capture", methods=["POST"])
+def api_calib_manual_capture():
+    """Détecte une fléchette POSÉE À LA MAIN.
+
+    La boucle de détection ne peut pas le faire : elle écarte tout mouvement
+    durant plus de MAX_THROW_TICKS frames (~0,5 s) comme étant une main à la
+    cible, et une pose manuelle dépasse toujours ce seuil. On court-circuite
+    donc sa machine à états et on applique extract_impact directement entre la
+    référence et l'image courante — même détecteur, comme l'outil 11 points.
+
+    Indispensable au contrôle final : poser une fléchette sur un repère exact
+    (bull, coin de case) est la seule façon de détecter un biais systématique
+    de clic, que l'erreur glissante ne peut pas voir.
+    """
+    if not _manual_ref:
+        return jsonify({"error": "prends d'abord la référence, cible vide"}), 400
+
+    frames, grays = grab_grays()
+    ref_grays, ref_frames = _manual_ref["grays"], _manual_ref["frames"]
+    results = {c: extract_impact(ref_grays[c], grays[c], surface_lines.get(c))
+               for c in grays if c in ref_grays}
+    tips = {c: r[1] for c, r in results.items() if r[0] == "dart"}
+    if len(tips) < 2:
+        return jsonify({"error": "fléchette vue par moins de 2 caméras",
+                        "kinds": {str(c): r[0] for c, r in results.items()}}), 400
+
+    event = {
+        "id": state["next_id"],
+        "stamp": datetime.now().strftime("%Y%m%d_%H%M%S_") + str(state["next_id"]),
+        "time": datetime.now().strftime("%H:%M:%S"),
+        "tips": {str(c): list(t) for c, t in tips.items()},
+        "areas": {str(c): r[2] for c, r in results.items()},
+        "prediction": predict(tips),
+        "truth": None,
+        "manual": True,
+    }
+    state["next_id"] += 1
+    save_event(event, ref_frames, frames, tips)
+    state["events"].insert(0, event)
+    del state["events"][KEEP_EVENTS:]
+    return jsonify({"ok": True, "id": event["id"]})
 
 
 @app.route("/api/calib/point", methods=["POST"])
@@ -810,6 +873,20 @@ def calib_page():
  <br>Le mode jeu est coupé automatiquement : rien n'est envoyé au jeu pendant la calibration.</div>
 </div>
 
+<div class="ev">
+ <b>🔎 Contrôle : fléchette posée à la main</b>
+ <div class="muted">La détection automatique ignore les poses manuelles (elle les prend pour
+ une main devant la cible). Utilise ces deux boutons pour poser une fléchette sur un repère
+ EXACT — bull, coin de case — et vérifier ce que le modèle en cours prédit. C'est le seul
+ moyen de repérer un biais systématique de clic : l'erreur glissante, elle, ne le voit pas.
+ <br>1. cible vide → « Référence ». 2. pose la fléchette, écarte-toi → « Capturer ».</div>
+ <div style="margin-top:8px">
+   <button class="ghost" onclick="manualRef()">1. Référence (cible vide)</button>
+   <button class="ghost" onclick="manualCapture()">2. Capturer la fléchette posée</button>
+   <span id="manualinfo" class="muted"></span>
+ </div>
+</div>
+
 <div id="pending"></div>
 
 <div class="ev">
@@ -899,14 +976,24 @@ function renderPending() {
     </figure>`).join('');
   box.innerHTML = `<div class="ev">
     <b>Impact #${pending.id}</b> <span class="muted">à ${pending.time} — ${coh}</span>
+    ${pending.manual ? '<span class="warn"> · posée à la main</span>' : ''}
     ${suspect ? '<div class="bad">⚠ Cohérence faible : une caméra a probablement accroché une ombre. À ignorer sauf si les zooms sont nets.</div>' : ''}
     <div class="muted">Le repère orange doit être sur la pointe de la fléchette.</div>
     <div class="imgs">${imgs}</div>
     <button class="ghost" onclick="skip()">Ignorer cet impact</button>
   </div>`;
-  document.getElementById('hint').textContent =
-    'Clique la position exacte de la pointe sur la cible.'
-    + (ghost ? ' Le point bleu est la prédiction du modèle en cours.' : '');
+
+  const hint = document.getElementById('hint');
+  if (ghost) {
+    const r = Math.hypot(ghost.x, ghost.y).toFixed(1);
+    hint.innerHTML = `${ghost.source || 'Modèle'} → <b>x ${ghost.x} mm, y ${ghost.y} mm</b>`
+      + ` <span class="muted">(${r} mm du centre)</span>`
+      + `<br><span class="muted">Cercle bleu sur la cible. Pour un contrôle : pose la fléchette`
+      + ` au bull, la prédiction doit être proche de 0, 0.</span>`
+      + `<br>Clique la position réelle de la pointe pour l'ajouter aux échantillons.`;
+  } else {
+    hint.textContent = 'Clique la position exacte de la pointe sur la cible.';
+  }
 }
 
 function renderBand(cal) {
@@ -952,6 +1039,26 @@ function drawOverlay(cal) {
                stroke="#4de3ff" stroke-width="1.6" stroke-dasharray="3 2"/>`
     : '';
   document.getElementById('overlay').innerHTML = dots + g;
+}
+
+async function manualRef() {
+  const info = document.getElementById('manualinfo');
+  const r = await j('/api/calib/manual_ref', {});
+  info.textContent = r.error ? ('⚠ ' + r.error)
+    : `référence prise (caméras ${r.cams.join(', ')}) — pose la fléchette`;
+}
+
+async function manualCapture() {
+  const info = document.getElementById('manualinfo');
+  const r = await j('/api/calib/manual_capture', {});
+  if (r.error) {
+    info.textContent = '⚠ ' + r.error
+      + (r.kinds ? ' (' + Object.entries(r.kinds).map(([c, k]) => c + ':' + k).join(' ') + ')' : '');
+    return;
+  }
+  info.textContent = 'fléchette capturée';
+  ignored.delete(r.id);
+  await refresh();
 }
 
 function skip() { if (pending) { ignored.add(pending.id); pending = null; refresh(); } }
