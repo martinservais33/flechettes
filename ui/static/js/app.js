@@ -162,6 +162,14 @@ function showScreen(id) {
   document.getElementById(id).classList.add("active");
 }
 
+// Identifie une partie (approximatif : mode + joueurs) pour savoir si la
+// partie active sur le serveur est bien celle que l'utilisateur a quittée
+// volontairement via "Accueil", ou une nouvelle démarrée depuis un autre appareil.
+function gameSignature(state) {
+  return state.mode + "|" + state.players.map(p => p.name).join(",");
+}
+let _dismissedGameSig = null;
+
 async function showHome() {
   showScreen("screen-home");
   const res = await api("GET", "/api/state");
@@ -170,6 +178,7 @@ async function showHome() {
     const names = res.players.map(p => p.name).join(" vs ");
     document.getElementById("resume-info").textContent = `${modeLabel(res.mode)} — ${names}`;
     card.style.display = "flex";
+    _dismissedGameSig = gameSignature(res);
   } else {
     card.style.display = "none";
   }
@@ -182,6 +191,7 @@ async function resumeGame() {
 }
 
 function enterGame(state) {
+  _dismissedGameSig = null;
   clearHold();
   renderGame(state);
   resetTracking(state);
@@ -764,9 +774,12 @@ setInterval(async () => {
   }
   // Accueil / victoire : détecte une partie démarrée depuis un autre appareil
   // et y bascule automatiquement (pas besoin de recharger la page du Pi).
+  // On ignore la partie que l'utilisateur vient de quitter volontairement
+  // (bouton Accueil) pour ne pas l'y renvoyer de force — elle reste
+  // accessible via la carte "Reprendre".
   if (screen.id === "screen-home" || screen.id === "screen-win") {
     const res = await api("GET", "/api/state");
-    if (!res.error && !res.winner) enterGame(res);
+    if (!res.error && !res.winner && gameSignature(res) !== _dismissedGameSig) enterGame(res);
   }
 }, 2000);
 
