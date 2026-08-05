@@ -145,12 +145,21 @@ function renderRecap(state, finisher, bust) {
   const label = bust
     ? `<div class="turn-label" style="color:#ff6b6b">BUST — TOUR PERDU</div>`
     : `<div class="turn-label">FIN DU TOUR</div>`;
+  // En mode TV, la pause est le seul moment où personne ne joue : c'est là
+  // qu'on montre la cible de précision du joueur qui vient de terminer.
+  // Rien à montrer si la partie s'est jouée à la main (pas de coordonnées).
+  const impacts = isTv() ? cameraDarts(finisher) : [];
+  const board = impacts.length
+    ? `<div class="impact-board recap-board">${drawImpactBoard(impacts)}</div>`
+    : "";
+
   document.getElementById("game-main").innerHTML =
     `<div class="gm-panel center-col" style="flex:1">
       ${label}
       <div class="turn-name">${finisher.name}</div>
-      <div style="font-family:var(--disp);font-size:clamp(2.4rem,8vw,5.5rem);line-height:1;color:${bust ? "#ff6b6b" : "#fff"}">${playerValue(state.mode, finisher.state)}</div>
+      <div class="recap-value ${bust ? "bust" : ""}">${playerValue(state.mode, finisher.state)}</div>
       <div class="dart-row">${chips}</div>
+      ${board}
       <div class="recap-hint">🎯 Récupérez les fléchettes · <span id="recap-count">${HOLD_SECONDS}</span> s</div>
     </div>`;
   document.getElementById("edit-score-card").style.display = "none";
@@ -401,17 +410,23 @@ function renderGame(state) {
 }
 
 // ---- Cible de précision : impacts caméra du joueur en cours ----
-function renderImpactBoard(state) {
-  const cp = currentPlayer(state);
-  // toutes les fléchettes du joueur en cours ayant des coordonnées (caméra) :
-  // tours validés (cp.history) + tour en cours (state.current_throws)
+// Fléchettes d'un joueur ayant des coordonnées (donc détectées par les caméras ;
+// les fléchettes saisies à la main n'en ont pas). `extra` permet d'ajouter le
+// tour en cours, qui n'est pas encore dans l'historique.
+function cameraDarts(player, extra) {
   const darts = [];
-  (cp.history || []).forEach(turn => turn.forEach(t => {
+  (player.history || []).forEach(turn => turn.forEach(t => {
     if (t && t.x != null && t.y != null) darts.push(t);
   }));
-  (state.current_throws || []).forEach(t => {
+  (extra || []).forEach(t => {
     if (t && t.x != null && t.y != null) darts.push(t);
   });
+  return darts;
+}
+
+function renderImpactBoard(state) {
+  const cp = currentPlayer(state);
+  const darts = cameraDarts(cp, state.current_throws);
 
   const label = document.getElementById("impact-name");
   label.textContent = darts.length
@@ -427,7 +442,7 @@ function drawImpactBoard(darts) {
   const dots = darts.map(t => {
     const sx = (CX + t.x * MM).toFixed(1);
     const sy = (CY - t.y * MM).toFixed(1);     // axe y inversé (SVG vers le bas)
-    return `<circle cx="${sx}" cy="${sy}" r="4.5" fill="#4de3ff" fill-opacity="0.75" stroke="#0d0620" stroke-width="1"/>`;
+    return `<circle class="impact-dot" cx="${sx}" cy="${sy}" r="4.5" fill="#4de3ff" fill-opacity="0.75" stroke="#0d0620" stroke-width="1"/>`;
   }).join("");
   return svg.replace("</svg>", dots + "</svg>");
 }
@@ -504,7 +519,7 @@ function renderX01Main(state) {
       <div class="turn-score">${live.score}</div>
       ${dartRow(state)}
     </div>
-    <div class="gm-panel side-col">
+    <div class="gm-panel side-col tv-hide">
       <span class="eyebrow">Stats</span>
       <div class="stat-line"><span>Meilleure volée</span><span>${best || "—"}</span></div>
       <div class="stat-line"><span>Moyenne / volée</span><span>${avg}</span></div>
@@ -545,12 +560,13 @@ function renderClockMain(state) {
       <div class="turn-label" style="margin-top:8px">PROCHAINE CIBLE</div>
       <div class="turn-target">${targetLabel}</div>
       ${badge}
+      ${dartRow(state)}
     </div>
     <div class="gm-panel side-col" style="flex:1.2">
       <span class="eyebrow">Cible</span>
       <div class="clock-board">${drawClockDartboard(target)}</div>
     </div>
-    <div class="gm-panel side-col">
+    <div class="gm-panel side-col tv-hide">
       <span class="eyebrow">Classement</span>
       ${classement}
     </div>`;
@@ -630,6 +646,7 @@ function renderCricketMain(state) {
     <div class="cricket-table" style="grid-template-columns:1.2fr repeat(${cols}, minmax(60px,1fr))">
       ${headCells}${rows}
     </div>
+    ${dartRow(state)}
   </div>`;
 }
 
@@ -847,6 +864,34 @@ const isKiosk = new URLSearchParams(window.location.search).get("kiosk") === "1"
 if (isKiosk) {
   document.getElementById("player-input").addEventListener("focus", showVkb);
   document.getElementById("exit-kiosk-btn").style.display = "block";
+}
+
+// ============================================================
+//  MODE TV (écran du Pi)
+//  L'écran du Pi se regarde de loin : on masque la saisie et on grossit
+//  l'essentiel. Le bouton ⚙ rend l'interface complète le temps d'une
+//  correction, puis l'affichage TV revient tout seul.
+// ============================================================
+const TV_RETURN_MS = 45000;
+let _tvTimer = null;
+
+function isTv() { return document.body.classList.contains("tv"); }
+
+function setTv(on) {
+  document.body.classList.toggle("tv", on);
+  clearTimeout(_tvTimer);
+  // hors mode TV, on y retourne après un moment sans rien toucher
+  if (!on) _tvTimer = setTimeout(() => setTv(true), TV_RETURN_MS);
+}
+
+function toggleTv() { setTv(!isTv()); }
+
+if (isKiosk) {
+  document.getElementById("tv-toggle").style.display = "block";
+  setTv(true);
+  // chaque interaction repousse le retour automatique
+  ["click", "touchstart", "keydown"].forEach(ev =>
+    document.addEventListener(ev, () => { if (!isTv()) setTv(false); }, true));
 }
 
 // ---- utilitaires ----

@@ -207,6 +207,8 @@ input:focus { outline: none; border-color: var(--yellow); }
 }
 
 /* Pause de fin de tour */
+.recap-value { font-family: var(--disp); font-size: clamp(2.4rem, 8vw, 5.5rem); line-height: 1; color: #fff; }
+.recap-value.bust { color: #ff6b6b; }
 .recap-hint { margin-top: 14px; font-family: var(--mono); font-weight: 700; font-size: .9rem; color: var(--cyan); }
 .manual-panel.dimmed { opacity: .35; pointer-events: none; }
 
@@ -354,3 +356,74 @@ input:focus { outline: none; border-color: var(--yellow); }
   .sector-btn { height: 50px; font-size: 1rem; }
   .game-title { font-size: 1.05rem; }
 }
+
+/* ============================================================
+   MODE TV — l'écran du Pi, regardé de loin
+   Tout est scopé sous body.tv : sans cette classe, rien ne change.
+   Les tailles sont en vh pour s'adapter à l'écran sans le connaître.
+   ============================================================ */
+
+/* Bascule discrète vers l'interface complète (une correction de score) */
+.tv-toggle {
+  position: fixed; right: 14px; bottom: 14px; z-index: 60;
+  width: 46px; height: 46px; border-radius: 50%; cursor: pointer;
+  background: rgba(0,0,0,.5); color: var(--yellow);
+  border: 2px solid var(--muted2); font-size: 1.2rem;
+  opacity: .3; transition: opacity .2s;
+}
+.tv-toggle:hover, .tv-toggle:active { opacity: 1; }
+
+/* --- On masque tout ce qui sert à saisir --- */
+body.tv #manual-panel,
+body.tv #impact-card,
+body.tv #edit-score-card,
+body.tv .tv-hide { display: none !important; }
+
+/* --- Occuper tout l'écran (le cadre à 980px gâche un grand écran) --- */
+body.tv { padding: 0; }
+body.tv .screen { max-width: none; }
+body.tv #screen-game.active {
+  display: flex; flex-direction: column;
+  height: 100vh; padding: 10px 18px 6px;
+}
+body.tv .game-main { flex: 1; margin-bottom: 0; min-height: 0; }
+body.tv .gm-panel { padding: 10px 14px; }
+
+/* --- En-tête et badges joueurs : compacts, ils ne sont pas l'essentiel --- */
+body.tv .game-header { padding: 4px 14px; margin-bottom: 8px; }
+body.tv .game-title { font-size: clamp(.9rem, 2.2vh, 1.4rem); }
+body.tv #scoreboard { gap: 8px; margin-bottom: 8px; }
+body.tv .ps-card { padding: 5px 16px; }
+body.tv .ps-name { font-size: clamp(.7rem, 1.7vh, 1.1rem); }
+body.tv .ps-value { font-size: clamp(1.1rem, 3vh, 2.2rem); margin-top: 0; }
+
+/* --- Le joueur en cours domine --- */
+body.tv .turn-label { font-size: clamp(.7rem, 1.8vh, 1.2rem); }
+body.tv .turn-name { font-size: clamp(2rem, 7vh, 5rem); }
+body.tv .turn-score,
+body.tv .recap-value { font-size: clamp(5rem, 21vh, 15rem); }
+body.tv .turn-target { font-size: clamp(4rem, 18vh, 13rem); }
+
+/* --- Les fléchettes du tour, lisibles de loin --- */
+body.tv .dart-row { gap: 16px; min-height: 0; }
+body.tv .dart-chip { font-size: clamp(1.2rem, 3.4vh, 2.6rem); padding: 8px 20px; }
+body.tv .dart-chip.latest { font-size: clamp(2rem, 5.4vh, 4rem); padding: 12px 28px; }
+
+/* --- Cricket : le tableau n'a pas besoin d'un autre dessin, il a besoin de place --- */
+body.tv .cricket-table { flex: 1; align-content: stretch; }
+body.tv .ct-cell { padding: 4px; display: flex; align-items: center; justify-content: center; }
+body.tv .ct-cell.ct-head { font-size: clamp(.85rem, 2.2vh, 1.6rem); padding: 2px; }
+body.tv .ct-num { font-size: clamp(1.3rem, 4vh, 3rem); justify-content: flex-start; padding-left: 10px; }
+body.tv .ct-marks { font-size: clamp(1.4rem, 4.4vh, 3.2rem); }
+
+/* --- Horloge : la cible à viser reste utile, le classement non --- */
+body.tv .clock-board { flex: 1; align-items: center; }
+body.tv .clock-board svg { max-width: min(62vh, 100%); }
+body.tv .clock-hit { font-size: clamp(1.1rem, 3vh, 2.2rem); padding: 8px 22px; }
+
+/* --- Pause de fin de tour : même mise en page, plus la cible de précision --- */
+body.tv .recap-hint { font-size: clamp(.9rem, 2.2vh, 1.5rem); margin-top: 6px; }
+body.tv .recap-board { margin-top: 4px; }
+body.tv .recap-board svg { max-width: min(33vh, 100%); }
+/* impacts grossis : ils doivent se voir de loin, pas seulement de près */
+body.tv .recap-board .impact-dot { r: 8; stroke-width: 1.5; }
