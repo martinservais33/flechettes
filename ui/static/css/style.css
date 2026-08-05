@@ -410,6 +410,19 @@ body.tv .dart-chip { font-size: clamp(1.2rem, 3.4vh, 2.6rem); padding: 8px 20px;
 body.tv .dart-chip.latest { font-size: clamp(2rem, 5.4vh, 4rem); padding: 12px 28px; }
 
 /* --- Cricket : le tableau n'a pas besoin d'un autre dessin, il a besoin de place --- */
+/* Les fléchettes du tour passent à DROITE du tableau plutôt qu'en dessous :
+   en bas elles se faisaient rogner par le bord de l'écran. Là, elles sont à
+   mi-hauteur, bien visibles, et le tableau garde toute sa lisibilité (ses
+   colonnes sont bien plus larges que nécessaire sur un écran 16:9). */
+body.tv .cricket-panel { flex-direction: row; align-items: stretch; gap: 18px; }
+body.tv .cricket-panel .cricket-table { flex: 3; }
+body.tv .cricket-panel .dart-row {
+  flex: 1; flex-direction: column; justify-content: center; gap: 14px;
+  margin-top: 0; min-width: 0;
+}
+body.tv .cricket-panel .dart-row:empty { display: none; }   /* pas de colonne vide */
+body.tv .cricket-panel .dart-chip { font-size: clamp(1.6rem, 5vh, 3.4rem); padding: 12px 26px; }
+body.tv .cricket-panel .dart-chip.latest { font-size: clamp(2.2rem, 7vh, 4.6rem); padding: 16px 32px; }
 body.tv .cricket-table { flex: 1; align-content: stretch; }
 body.tv .ct-cell { padding: 4px; display: flex; align-items: center; justify-content: center; }
 body.tv .ct-cell.ct-head { font-size: clamp(.85rem, 2.2vh, 1.6rem); padding: 2px; }
@@ -421,9 +434,5 @@ body.tv .clock-board { flex: 1; align-items: center; }
 body.tv .clock-board svg { max-width: min(62vh, 100%); }
 body.tv .clock-hit { font-size: clamp(1.1rem, 3vh, 2.2rem); padding: 8px 22px; }
 
-/* --- Pause de fin de tour : même mise en page, plus la cible de précision --- */
+/* --- Pause de fin de tour --- */
 body.tv .recap-hint { font-size: clamp(.9rem, 2.2vh, 1.5rem); margin-top: 6px; }
-body.tv .recap-board { margin-top: 4px; }
-body.tv .recap-board svg { max-width: min(33vh, 100%); }
-/* impacts grossis : ils doivent se voir de loin, pas seulement de près */
-body.tv .recap-board .impact-dot { r: 8; stroke-width: 1.5; }

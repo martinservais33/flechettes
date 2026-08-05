@@ -145,21 +145,12 @@ function renderRecap(state, finisher, bust) {
   const label = bust
     ? `<div class="turn-label" style="color:#ff6b6b">BUST — TOUR PERDU</div>`
     : `<div class="turn-label">FIN DU TOUR</div>`;
-  // En mode TV, la pause est le seul moment où personne ne joue : c'est là
-  // qu'on montre la cible de précision du joueur qui vient de terminer.
-  // Rien à montrer si la partie s'est jouée à la main (pas de coordonnées).
-  const impacts = isTv() ? cameraDarts(finisher) : [];
-  const board = impacts.length
-    ? `<div class="impact-board recap-board">${drawImpactBoard(impacts)}</div>`
-    : "";
-
   document.getElementById("game-main").innerHTML =
     `<div class="gm-panel center-col" style="flex:1">
       ${label}
       <div class="turn-name">${finisher.name}</div>
       <div class="recap-value ${bust ? "bust" : ""}">${playerValue(state.mode, finisher.state)}</div>
       <div class="dart-row">${chips}</div>
-      ${board}
       <div class="recap-hint">🎯 Récupérez les fléchettes · <span id="recap-count">${HOLD_SECONDS}</span> s</div>
     </div>`;
   document.getElementById("edit-score-card").style.display = "none";
@@ -642,7 +633,7 @@ function renderCricketMain(state) {
     return `<div class="ct-cell ct-num">${label}</div>` + cells;
   }).join("");
 
-  return `<div class="gm-panel" style="flex:1">
+  return `<div class="gm-panel cricket-panel" style="flex:1">
     <div class="cricket-table" style="grid-template-columns:1.2fr repeat(${cols}, minmax(60px,1fr))">
       ${headCells}${rows}
     </div>
