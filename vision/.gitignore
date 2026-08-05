@@ -6,6 +6,8 @@ dataset/
 # Configs propres à chaque installation (générées par la calibration / les réglages)
 # — ne jamais versionner : le Pi a les siennes, un pull ne doit pas les écraser
 calibration.json
+calibration.backup.json
+calib_samples.json
 rotations.json
 surface.json
 roi.json
