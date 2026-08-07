@@ -623,12 +623,13 @@ function renderCricketMain(state) {
   const rows = TARGETS.map(t => {
     const label = t === 25 ? "BULL" : t;
     const cells = state.players.map(p => {
-      const marks = (p.name === state.current_player && state.current_live_state)
+      const me = p.name === state.current_player;
+      const marks = (me && state.current_live_state)
         ? state.current_live_state.marks : p.state.marks;
       const m = (marks && marks[t]) || 0;
       const closed = m >= 3;
       const txt = m === 0 ? "—" : "✕".repeat(m);
-      return `<div class="ct-cell ct-marks ${closed ? "closed" : ""} ${m === 0 ? "none" : ""}">${txt}</div>`;
+      return `<div class="ct-cell ct-marks ${me ? "me" : ""} ${closed ? "closed" : ""} ${m === 0 ? "none" : ""}">${txt}</div>`;
     }).join("");
     return `<div class="ct-cell ct-num">${label}</div>` + cells;
   }).join("");

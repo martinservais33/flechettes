@@ -236,11 +236,20 @@ input:focus { outline: none; border-color: var(--yellow); }
 .cricket-table { display: grid; gap: 6px; }
 .ct-cell { background: var(--bg); border-radius: 6px; padding: 13px; text-align: center; font-family: var(--disp); }
 .ct-cell.ct-head { background: transparent; font-family: var(--mono); font-size: .8rem; color: var(--muted); padding: 8px; }
-.ct-cell.ct-head.me { color: var(--green); }
 .ct-num { text-align: left; font-size: 1.3rem; }
 .ct-marks { font-size: 1.4rem; }
 .ct-marks.closed { color: var(--green); }
 .ct-marks.none { color: var(--muted3); }
+
+/* Colonne du joueur en cours : son nom devient une étiquette pleine et toute
+   sa colonne de croix est cernée — au cricket, savoir à qui c'est le tour
+   demandait sinon de chercher la carte jaune en haut de l'écran. */
+.ct-cell.ct-head.me {
+  background: var(--yellow); color: var(--ink); border-radius: 6px;
+  font-weight: 700; font-size: .95rem;
+}
+.ct-marks.me { box-shadow: inset 0 0 0 2px var(--yellow); background: #241a45; }
+.ct-marks.me.none { color: var(--muted2); }
 
 /* ---- Saisie manuelle ---- */
 .manual-panel {
@@ -426,6 +435,12 @@ body.tv .cricket-panel .dart-chip.latest { font-size: clamp(2.2rem, 7vh, 4.6rem)
 body.tv .cricket-table { flex: 1; align-content: stretch; }
 body.tv .ct-cell { padding: 4px; display: flex; align-items: center; justify-content: center; }
 body.tv .ct-cell.ct-head { font-size: clamp(.85rem, 2.2vh, 1.6rem); padding: 2px; }
+/* de loin, la colonne active doit sauter aux yeux */
+body.tv .ct-cell.ct-head.me {
+  font-size: clamp(1.1rem, 3.2vh, 2.4rem); padding: 4px 10px;
+  box-shadow: 0 0 0 3px var(--pink), 0 0 22px rgba(255,60,220,.55);
+}
+body.tv .ct-marks.me { box-shadow: inset 0 0 0 3px var(--yellow); }
 body.tv .ct-num { font-size: clamp(1.3rem, 4vh, 3rem); justify-content: flex-start; padding-left: 10px; }
 body.tv .ct-marks { font-size: clamp(1.4rem, 4.4vh, 3.2rem); }
 
