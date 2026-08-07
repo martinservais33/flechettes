@@ -8,6 +8,7 @@ from datetime import datetime
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 from game.game import Game
+from game import elo, tournament
 
 app = Flask(__name__, static_folder="../ui/static", template_folder="../ui/templates")
 
@@ -16,6 +17,7 @@ _game = None
 DATA_DIR     = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data")
 PLAYERS_FILE = os.path.join(DATA_DIR, "players.json")
 GAMES_FILE   = os.path.join(DATA_DIR, "games.json")
+TOURNAMENT_FILE = os.path.join(DATA_DIR, "tournament.json")
 
 # Création automatique du dossier data/ et des fichiers s'ils n'existent pas
 os.makedirs(DATA_DIR, exist_ok=True)
@@ -40,6 +42,20 @@ def load_games():
     with open(GAMES_FILE, "r") as f:
         return json.load(f)
 
+def load_tournament():
+    """Le tournoi en cours, ou None s'il n'y en a pas."""
+    if not os.path.exists(TOURNAMENT_FILE):
+        return None
+    try:
+        with open(TOURNAMENT_FILE, "r") as f:
+            return json.load(f)
+    except (ValueError, OSError):
+        return None
+
+def save_tournament(data):
+    with open(TOURNAMENT_FILE, "w") as f:
+        json.dump(data, f, indent=2, ensure_ascii=False)
+
 def archive_game(game):
     """Sauvegarde la partie dans games.json et retourne son id.
 
@@ -60,6 +76,9 @@ def archive_game(game):
         "players": [p.name for p in game.players],
         "cut_throat": game.cut_throat,
         "winner": game.winner.name if game.winner else None,
+        # Renseigné seulement pour une partie lancée depuis la page tournoi :
+        # c'est ce qui permet au tableau de se remplir tout seul.
+        "tournament_match": getattr(game, "tournament_match", None),
         "turns": [
             {
                 "player": game.players[i].name,
@@ -336,6 +355,158 @@ def resume_game(game_id):
 def get_games():
     # Appelé à l'ouverture de l'écran historique pour afficher la liste des parties.
     return jsonify(load_games())
+
+
+# ------------------------------------------------------------------
+# API tournoi
+# ------------------------------------------------------------------
+def tournament_results(tournoi):
+    """Résultats du tournoi : {id de match -> vainqueur}.
+
+    Reconstruits à chaque appel depuis l'historique des parties, complétés
+    par les forfaits. Une partie réellement jouée prime sur un forfait, ce
+    qui permet de rejouer un match déclaré par erreur.
+    """
+    results = dict(tournoi.get("walkovers", {}))
+    for g in load_games():
+        mid = g.get("tournament_match")
+        if mid and g.get("winner"):
+            results[mid] = g["winner"]
+    return results
+
+
+def tournament_elo(tournoi):
+    """Elo des inscrits, sous forme {nom: points} pour départager les poules."""
+    return {r["name"]: r["elo"] for r in elo.compute(load_games(), tournoi["players"])}
+
+
+@app.route("/api/tournament/structures")
+def tournament_structures():
+    # Structures de poules possibles pour un nombre d'inscrits donné.
+    return jsonify(tournament.structures(int(request.args.get("n", 0))))
+
+
+@app.route("/api/tournament", methods=["GET"])
+def tournament_state():
+    tournoi = load_tournament()
+    if not tournoi:
+        return jsonify({"exists": False})
+    results = tournament_results(tournoi)
+    view = tournament.view(tournoi, results, tournament_elo(tournoi))
+    view["exists"] = True
+    view["elo"] = elo.compute(load_games(), tournoi["players"])
+    return jsonify(view)
+
+
+@app.route("/api/tournament", methods=["POST"])
+def tournament_create():
+    d = request.json
+    players = d.get("players", [])
+    if len(players) < 4:
+        return jsonify({"error": "Au moins 4 joueurs"}), 400
+
+    valides = tournament.structures(len(players))
+    n_groups, qualify = int(d["n_groups"]), int(d["qualify"])
+    if not any(s["groups"] == n_groups and s["qualify"] == qualify for s in valides):
+        return jsonify({"error": "Structure de poules invalide pour ce nombre de joueurs"}), 400
+
+    tournoi = tournament.create(
+        players, mode=d.get("mode", "501"),
+        options=d.get("options"), n_groups=n_groups, qualify=qualify)
+    save_tournament(tournoi)
+    return jsonify({"ok": True})
+
+
+@app.route("/api/tournament", methods=["DELETE"])
+def tournament_delete():
+    # Le calendrier disparaît ; les parties jouées restent dans l'historique.
+    if os.path.exists(TOURNAMENT_FILE):
+        os.remove(TOURNAMENT_FILE)
+    return jsonify({"ok": True})
+
+
+@app.route("/api/tournament/start_match", methods=["POST"])
+def tournament_start_match():
+    """Lance la partie correspondant à un match du tournoi."""
+    global _game
+    tournoi = load_tournament()
+    if not tournoi:
+        return jsonify({"error": "Aucun tournoi"}), 400
+
+    mid = request.json["id"]
+    match = next((m for m in tournoi["matches"] if m["id"] == mid), None)
+    if not match:
+        return jsonify({"error": "Match inconnu"}), 404
+
+    results = tournament_results(tournoi)
+    if mid in results:
+        return jsonify({"error": "Match déjà joué"}), 400
+    players = tournament.match_players(tournoi, match, results, tournament_elo(tournoi))
+    if not all(players):
+        return jsonify({"error": "Les joueurs de ce match ne sont pas encore connus"}), 400
+
+    auto_archive_unfinished(_game)
+    opts = tournoi.get("options", {})
+    _game = Game(players, mode=tournoi["mode"],
+                 double_in=opts.get("double_in", False),
+                 double_out=opts.get("double_out", True),
+                 cut_throat=opts.get("cut_throat", False))
+    _game.tournament_match = mid
+    return jsonify({"ok": True, "state": _game.state_view()})
+
+
+@app.route("/api/tournament/walkover", methods=["POST"])
+def tournament_walkover():
+    """Déclare un vainqueur sans jouer (départ anticipé, blessure, oubli).
+
+    Ne compte pas pour l'Elo : aucune partie n'est créée.
+    """
+    tournoi = load_tournament()
+    if not tournoi:
+        return jsonify({"error": "Aucun tournoi"}), 400
+    d = request.json
+    match = next((m for m in tournoi["matches"] if m["id"] == d["id"]), None)
+    if not match:
+        return jsonify({"error": "Match inconnu"}), 404
+
+    players = tournament.match_players(tournoi, match, tournament_results(tournoi),
+                                       tournament_elo(tournoi))
+    if d["winner"] not in players:
+        return jsonify({"error": "Ce joueur ne dispute pas ce match"}), 400
+
+    tournoi.setdefault("walkovers", {})[d["id"]] = d["winner"]
+    save_tournament(tournoi)
+    return jsonify({"ok": True})
+
+
+@app.route("/api/tournament/reset_match", methods=["POST"])
+def tournament_reset_match():
+    """Annule le résultat d'un match : il redevient jouable."""
+    tournoi = load_tournament()
+    if not tournoi:
+        return jsonify({"error": "Aucun tournoi"}), 400
+    mid = request.json["id"]
+
+    tournoi.get("walkovers", {}).pop(mid, None)
+    save_tournament(tournoi)
+
+    games = [g for g in load_games() if g.get("tournament_match") != mid]
+    with open(GAMES_FILE, "w") as f:
+        json.dump(games, f, indent=2, ensure_ascii=False)
+    return jsonify({"ok": True})
+
+
+@app.route("/api/elo")
+def get_elo():
+    # Classement Elo. Sans tournoi, il porte sur tous les joueurs enregistrés ;
+    # avec un tournoi en cours, il est restreint à ses inscrits — une partie
+    # avec un invité extérieur ne doit pas fausser le classement du groupe.
+    tournoi = load_tournament()
+    roster = tournoi["players"] if tournoi else load_saved_players()
+    return jsonify({
+        "roster_source": "tournoi" if tournoi else "joueurs enregistrés",
+        "ranking": elo.compute(load_games(), roster),
+    })
 
 
 @app.route("/api/stats")
