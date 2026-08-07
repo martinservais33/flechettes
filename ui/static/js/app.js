@@ -991,8 +991,30 @@ document.querySelectorAll("#tp-mode .mode-btn").forEach(btn => {
     document.querySelectorAll("#tp-mode .mode-btn").forEach(b => b.classList.remove("active"));
     btn.classList.add("active");
     tournamentMode = btn.dataset.mode;
+    document.getElementById("tp-x01-options").style.display =
+      tournamentMode === "cricket" ? "none" : "flex";
+    document.getElementById("tp-cricket-options").style.display =
+      tournamentMode === "cricket" ? "flex" : "none";
   });
 });
+
+// Options du tournoi : elles s'appliqueront à chacun de ses matchs.
+function tournamentOptions() {
+  return {
+    double_in:  document.getElementById("tp-double-in").checked,
+    double_out: document.getElementById("tp-double-out").checked,
+    cut_throat: document.getElementById("tp-cut-throat").checked,
+  };
+}
+
+function optionsLabel(mode, o) {
+  o = o || {};
+  if (mode === "cricket") return o.cut_throat ? "Cut-throat" : "Cricket standard";
+  const parts = [];
+  if (o.double_in) parts.push("Double In");
+  if (o.double_out) parts.push("Double Out");
+  return parts.length ? parts.join(" · ") : "sans contrainte";
+}
 
 document.getElementById("tp-input").addEventListener("keydown", e => {
   if (e.key === "Enter") createTournamentPlayer();
@@ -1000,11 +1022,14 @@ document.getElementById("tp-input").addEventListener("keydown", e => {
 
 async function createTournament() {
   if (!selectedStructure) { alert("Choisis un format de tournoi."); return; }
+  const opts = tournamentOptions();
   if (!confirm(`Créer le tournoi à ${tournamentPlayers.length} joueurs ?\n\n`
-             + `${selectedStructure.label}\n${selectedStructure.total_matches} matchs`)) return;
+             + `${selectedStructure.label}\n${selectedStructure.total_matches} matchs\n`
+             + `${tournamentMode.toUpperCase()} — ${optionsLabel(tournamentMode, opts)}`)) return;
   const res = await api("POST", "/api/tournament", {
     players: tournamentPlayers,
     mode: tournamentMode,
+    options: opts,
     n_groups: selectedStructure.groups,
     qualify: selectedStructure.qualify,
   });
@@ -1022,9 +1047,12 @@ async function deleteTournament() {
 // ---- Tournoi en cours ----
 function renderTournament(state) {
   const champ = document.getElementById("tournament-champion");
-  champ.innerHTML = state.champion
+  const reglage = `<div class="muted-txt" style="text-align:center;margin-bottom:10px">
+      ${state.players.length} joueurs · ${state.mode.toUpperCase()}
+      · ${optionsLabel(state.mode, state.options)}</div>`;
+  champ.innerHTML = (state.champion
     ? `<div class="card champion-card">🏆 <b>${state.champion}</b> remporte le tournoi</div>`
-    : "";
+    : "") + reglage;
   renderMatches(state);
   renderRanking(state);
 }

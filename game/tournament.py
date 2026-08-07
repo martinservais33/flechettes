@@ -254,6 +254,7 @@ def view(tournament, results, elo_by_name=None):
     return {
         "name": tournament["name"],
         "mode": tournament["mode"],
+        "options": tournament.get("options", {}),
         "qualify": tournament["qualify"],
         "players": tournament["players"],
         "matches": out,
