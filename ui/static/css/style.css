@@ -367,6 +367,64 @@ input:focus { outline: none; border-color: var(--yellow); }
 }
 
 /* ============================================================
+   TOURNOI
+   ============================================================ */
+.muted-txt { color: var(--muted); font-size: .8rem; }
+
+/* Classement Elo de l'accueil : joueur à gauche, points à droite */
+.elo-line {
+  display: flex; align-items: center; gap: 10px;
+  padding: 6px 0; border-bottom: 1px solid var(--muted3);
+}
+.elo-line:last-child { border-bottom: none; }
+.elo-rank { color: var(--muted); font-family: var(--mono); font-size: .75rem; width: 20px; }
+.elo-name { flex: 1; font-family: var(--disp); font-size: .9rem; }
+.elo-pts { font-family: var(--disp); font-size: 1rem; color: var(--yellow); }
+
+/* À la création, on compose une liste parmi tous les joueurs enregistrés :
+   un simple changement de couleur de texte ne suffit pas à distinguer les
+   inscrits, on remplit la pastille. */
+#tp-list .player-chip { margin: 0 6px 6px 0; }
+#tp-list .player-chip.in-game { background: var(--yellow); color: var(--ink); border-color: var(--yellow); }
+.vs { color: var(--muted2); font-family: var(--mono); font-size: .75rem; margin: 0 6px; }
+
+/* Choix du format à la création */
+.struct-opt {
+  border: 2px solid var(--muted3); border-radius: 10px;
+  padding: 10px 12px; margin-bottom: 8px; cursor: pointer;
+}
+.struct-opt.active { border-color: var(--yellow); background: rgba(255,210,63,.09); }
+.struct-label { font-family: var(--disp); font-size: .95rem; }
+.struct-meta { color: var(--muted); font-size: .76rem; margin-top: 3px; }
+
+/* Une ligne = un match */
+.match-row {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  padding: 9px 0; border-bottom: 1px solid var(--muted3); font-size: .92rem;
+}
+.match-row:last-child { border-bottom: none; }
+.match-row.done { color: var(--green); }
+.match-row.waiting { color: var(--muted2); }
+button.small { font-size: .75rem; padding: 5px 11px; }
+/* .validate n'était stylé que dans .action-row : ici il faut le redire */
+.match-row .validate { background: var(--green); color: var(--ink); font-family: var(--disp); }
+
+/* Classements (poules et Elo) */
+.rank-table { width: 100%; border-collapse: collapse; font-size: .86rem; }
+.rank-table th {
+  text-align: left; font-family: var(--mono); font-size: .68rem;
+  color: var(--muted); font-weight: 700; padding: 4px 6px;
+}
+.rank-table td { padding: 6px; border-top: 1px solid var(--muted3); }
+.rank-table tr.qualified td { color: var(--green); }
+.rank-table td:first-child { color: var(--muted); width: 28px; }
+
+.champion-card {
+  border-color: var(--yellow); text-align: center;
+  font-family: var(--disp); font-size: 1.2rem;
+}
+
+/* ============================================================
    MODE TV — l'écran du Pi, regardé de loin
    Tout est scopé sous body.tv : sans cette classe, rien ne change.
    Les tailles sont en vh pour s'adapter à l'écran sans le connaître.

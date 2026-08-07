@@ -41,7 +41,7 @@
       </div>
       <div class="opts" id="x01-options">
         <label><input type="checkbox" id="double-in" /> Double In</label>
-        <label><input type="checkbox" id="double-out" checked /> Double Out</label>
+        <label><input type="checkbox" id="double-out" /> Double Out</label>
       </div>
       <div class="opts" id="cricket-options" style="display:none">
         <label><input type="checkbox" id="cut-throat" /> Cut-throat (le perdant prend les points)</label>
@@ -49,6 +49,14 @@
     </div>
 
     <button class="btn-primary big" onclick="startGame()">LANCER LA PARTIE</button>
+
+    <!-- Classement Elo — toutes les parties comptent, pour tout le monde -->
+    <div class="card" id="home-elo-card" style="margin-top:22px">
+      <div class="eyebrow">Classement Elo</div>
+      <div id="home-elo"></div>
+    </div>
+
+    <button class="btn-ghost big" style="margin-top:8px" onclick="showTournament()">🏆 TOURNOI GRASSIENS</button>
     <button class="btn-ghost big" style="margin-top:8px" onclick="showHistory()">Anciennes parties & stats</button>
     <button id="exit-kiosk-btn" class="btn-ghost big" style="display:none;margin-top:8px" onclick="exitKiosk()">✕ Quitter l'application</button>
   </div>
@@ -116,11 +124,68 @@
       <span style="width:80px"></span>
     </header>
     <div class="tabs">
-      <button class="tab-btn active" onclick="switchTab('tab-games')">Parties</button>
-      <button class="tab-btn" onclick="switchTab('tab-stats')">Stats joueurs</button>
+      <button class="tab-btn active" data-tab="tab-games" onclick="switchTab('tab-games')">Parties</button>
+      <button class="tab-btn" data-tab="tab-stats" onclick="switchTab('tab-stats')">Stats joueurs</button>
     </div>
     <div id="tab-games" class="tab-content active"><div id="games-list"></div></div>
     <div id="tab-stats" class="tab-content"><div id="stats-list"></div></div>
+  </div>
+
+  <!-- ===================== TOURNOI ===================== -->
+  <div id="screen-tournament" class="screen">
+    <header class="game-header">
+      <button class="btn-ghost" onclick="showHome()">← Accueil</button>
+      <div class="game-title">🏆 TOURNOI GRASSIENS</div>
+      <span style="width:80px"></span>
+    </header>
+
+    <!-- Création (aucun tournoi en cours) -->
+    <div id="tournament-create" style="display:none">
+      <div class="card">
+        <div class="eyebrow">Inscrits — <span id="tp-count">0</span></div>
+        <div id="tp-list"></div>
+        <div class="row" style="margin-top:6px">
+          <input id="tp-input" type="text" placeholder="Ajouter un joueur…" />
+          <button class="btn-ghost" onclick="createTournamentPlayer()">Créer</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="eyebrow">Mode des matchs</div>
+        <div class="mode-grid" id="tp-mode">
+          <button class="mode-btn active" data-mode="501">501</button>
+          <button class="mode-btn" data-mode="301">301</button>
+          <button class="mode-btn" data-mode="701">701</button>
+          <button class="mode-btn" data-mode="cricket">Cricket</button>
+        </div>
+        <div class="opts" id="tp-x01-options">
+          <label><input type="checkbox" id="tp-double-in" /> Double In</label>
+          <label><input type="checkbox" id="tp-double-out" /> Double Out</label>
+        </div>
+        <div class="opts" id="tp-cricket-options" style="display:none">
+          <label><input type="checkbox" id="tp-cut-throat" /> Cut-throat (le perdant prend les points)</label>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="eyebrow">Format — poules puis tableau final</div>
+        <div id="tp-structures"></div>
+      </div>
+
+      <button class="btn-primary big" onclick="createTournament()">CRÉER LE TOURNOI</button>
+    </div>
+
+    <!-- Tournoi en cours -->
+    <div id="tournament-view" style="display:none">
+      <div id="tournament-champion"></div>
+      <div class="tabs">
+        <button class="tab-btn active" data-tab="tab-matches" onclick="switchTab('tab-matches')">Matchs</button>
+        <button class="tab-btn" data-tab="tab-ranking" onclick="switchTab('tab-ranking')">Classement</button>
+      </div>
+      <div id="tab-matches" class="tab-content active"><div id="matches-list"></div></div>
+      <div id="tab-ranking" class="tab-content"><div id="ranking-list"></div></div>
+      <button class="btn-danger big" style="margin-top:14px" onclick="deleteTournament()">Supprimer le tournoi</button>
+    </div>
   </div>
 
   <!-- Clavier virtuel tactile -->

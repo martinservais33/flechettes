@@ -170,8 +170,24 @@ function gameSignature(state) {
 }
 let _dismissedGameSig = null;
 
+// Classement Elo sur l'accueil : tout le monde y figure, même sans avoir
+// encore joué (1000 points de départ), et toutes les parties comptent.
+async function renderHomeElo() {
+  const res = await api("GET", "/api/elo");
+  const el = document.getElementById("home-elo");
+  const rows = res.ranking || [];
+  el.innerHTML = rows.length
+    ? rows.map(r => `<div class="elo-line">
+        <span class="elo-rank">${r.rank}</span>
+        <span class="elo-name">${r.name}</span>
+        <span class="elo-pts">${r.elo}</span>
+      </div>`).join("")
+    : "<span style='color:var(--muted3)'>Aucun joueur enregistré</span>";
+}
+
 async function showHome() {
   showScreen("screen-home");
+  renderHomeElo();
   const res = await api("GET", "/api/state");
   const card = document.getElementById("resume-card");
   if (!res.error && !res.winner) {
@@ -211,6 +227,7 @@ async function loadSavedPlayers() {
   const res = await api("GET", "/api/players");
   savedPlayers = res.players;
   renderSavedPlayers();
+  renderHomeElo();
 }
 
 function renderSavedPlayers() {
@@ -241,6 +258,7 @@ async function deleteSavedPlayer(name) {
   players = players.filter(p => p !== name);
   renderPlayers();
   renderSavedPlayers();
+  renderHomeElo();
 }
 
 async function createPlayer() {
@@ -253,6 +271,7 @@ async function createPlayer() {
   if (!players.includes(name)) players.push(name);
   renderPlayers();
   renderSavedPlayers();
+  renderHomeElo();
 }
 
 document.getElementById("player-input").addEventListener("keydown", e => {
@@ -276,9 +295,10 @@ function renderPlayers() {
   ).join("");
 }
 
-document.querySelectorAll(".mode-btn").forEach(btn => {
+// Limité à la grille de l'accueil : l'écran tournoi a sa propre grille de modes.
+document.querySelectorAll("#mode-select .mode-btn").forEach(btn => {
   btn.addEventListener("click", () => {
-    document.querySelectorAll(".mode-btn").forEach(b => b.classList.remove("active"));
+    document.querySelectorAll("#mode-select .mode-btn").forEach(b => b.classList.remove("active"));
     btn.classList.add("active");
     selectedMode = btn.dataset.mode;
     document.getElementById("x01-options").style.display =
@@ -687,10 +707,14 @@ async function showHistory() {
   showScreen("screen-history");
 }
 
+// Onglets, limités à l'écran qui les contient : plusieurs écrans en ont
+// désormais (historique, tournoi) et ils ne doivent pas se marcher dessus.
 function switchTab(tabId) {
-  const tabs = ["tab-games", "tab-stats"];
-  document.querySelectorAll(".tab-btn").forEach((b, i) => b.classList.toggle("active", tabs[i] === tabId));
-  document.querySelectorAll(".tab-content").forEach(c => c.classList.toggle("active", c.id === tabId));
+  const screen = document.getElementById(tabId).closest(".screen");
+  screen.querySelectorAll(".tab-btn").forEach(b =>
+    b.classList.toggle("active", b.dataset.tab === tabId));
+  screen.querySelectorAll(".tab-content").forEach(c =>
+    c.classList.toggle("active", c.id === tabId));
 }
 
 async function loadGames() {
@@ -884,6 +908,283 @@ if (isKiosk) {
   // chaque interaction repousse le retour automatique
   ["click", "touchstart", "keydown"].forEach(ev =>
     document.addEventListener(ev, () => { if (!isTv()) setTv(false); }, true));
+}
+
+// ============================================================
+//  TOURNOI GRASSIENS
+//  Le calendrier vit côté serveur ; les résultats sont déduits des parties
+//  jouées. L'écran ne fait donc que lire un état et déclencher des actions.
+// ============================================================
+let tournamentPlayers = [];
+let tournamentMode = "501";
+let tournamentStructures = [];
+let selectedStructure = null;
+let walkoverFor = null;      // match dont on est en train de déclarer un forfait
+
+async function showTournament() {
+  const state = await api("GET", "/api/tournament");
+  showScreen("screen-tournament");
+  const creation = document.getElementById("tournament-create");
+  const view = document.getElementById("tournament-view");
+  creation.style.display = state.exists ? "none" : "block";
+  view.style.display = state.exists ? "block" : "none";
+
+  if (state.exists) {
+    switchTab("tab-matches");
+    renderTournament(state);
+  } else {
+    tournamentPlayers = [];
+    await loadSavedPlayers();
+    renderTournamentPlayers();
+  }
+}
+
+// ---- Création ----
+function renderTournamentPlayers() {
+  document.getElementById("tp-count").textContent = tournamentPlayers.length;
+  document.getElementById("tp-list").innerHTML = savedPlayers.map(p => {
+    const inside = tournamentPlayers.includes(p);
+    return `<div class="player-chip saved ${inside ? "in-game" : ""}"
+                 onclick="toggleTournamentPlayer('${esc(p)}')">${p}</div>`;
+  }).join("") || "<span style='color:var(--muted3)'>Aucun joueur enregistré</span>";
+  loadStructures();
+}
+
+function toggleTournamentPlayer(name) {
+  tournamentPlayers = tournamentPlayers.includes(name)
+    ? tournamentPlayers.filter(p => p !== name)
+    : [...tournamentPlayers, name];
+  renderTournamentPlayers();
+}
+
+async function createTournamentPlayer() {
+  const input = document.getElementById("tp-input");
+  const name = input.value.trim();
+  if (!name) return;
+  input.value = "";
+  const res = await api("POST", "/api/players", { name });
+  savedPlayers = res.players;
+  if (!tournamentPlayers.includes(name)) tournamentPlayers.push(name);
+  renderTournamentPlayers();
+}
+
+async function loadStructures() {
+  const el = document.getElementById("tp-structures");
+  const n = tournamentPlayers.length;
+  if (n < 4) {
+    el.innerHTML = "<span style='color:var(--muted3)'>Sélectionne au moins 4 joueurs</span>";
+    tournamentStructures = []; selectedStructure = null;
+    return;
+  }
+  tournamentStructures = await api("GET", `/api/tournament/structures?n=${n}`);
+  if (!tournamentStructures.length) {
+    el.innerHTML = `<span style='color:var(--muted3)'>Aucun format possible à ${n} joueurs</span>`;
+    selectedStructure = null;
+    return;
+  }
+  // par défaut, le format le plus fourni : des vacances, c'est long
+  if (!tournamentStructures.some(s => sameStructure(s, selectedStructure)))
+    selectedStructure = tournamentStructures[tournamentStructures.length - 1];
+
+  el.innerHTML = tournamentStructures.map((s, i) => `
+    <div class="struct-opt ${sameStructure(s, selectedStructure) ? "active" : ""}"
+         onclick="pickStructure(${i})">
+      <div class="struct-label">${s.label}</div>
+      <div class="struct-meta">${s.total_matches} matchs au total
+        · ${s.group_matches} en poule · ${s.qualified} qualifiés
+        · ${s.min_per_player} match${s.min_per_player > 1 ? "s" : ""} garanti${s.min_per_player > 1 ? "s" : ""} par joueur</div>
+    </div>`).join("");
+}
+
+function sameStructure(a, b) {
+  return a && b && a.groups === b.groups && a.qualify === b.qualify;
+}
+
+function pickStructure(i) {
+  selectedStructure = tournamentStructures[i];
+  loadStructures();
+}
+
+document.querySelectorAll("#tp-mode .mode-btn").forEach(btn => {
+  btn.addEventListener("click", () => {
+    document.querySelectorAll("#tp-mode .mode-btn").forEach(b => b.classList.remove("active"));
+    btn.classList.add("active");
+    tournamentMode = btn.dataset.mode;
+    document.getElementById("tp-x01-options").style.display =
+      tournamentMode === "cricket" ? "none" : "flex";
+    document.getElementById("tp-cricket-options").style.display =
+      tournamentMode === "cricket" ? "flex" : "none";
+  });
+});
+
+// Options du tournoi : elles s'appliqueront à chacun de ses matchs.
+function tournamentOptions() {
+  return {
+    double_in:  document.getElementById("tp-double-in").checked,
+    double_out: document.getElementById("tp-double-out").checked,
+    cut_throat: document.getElementById("tp-cut-throat").checked,
+  };
+}
+
+function optionsLabel(mode, o) {
+  o = o || {};
+  if (mode === "cricket") return o.cut_throat ? "Cut-throat" : "Cricket standard";
+  const parts = [];
+  if (o.double_in) parts.push("Double In");
+  if (o.double_out) parts.push("Double Out");
+  return parts.length ? parts.join(" · ") : "sans contrainte";
+}
+
+document.getElementById("tp-input").addEventListener("keydown", e => {
+  if (e.key === "Enter") createTournamentPlayer();
+});
+
+async function createTournament() {
+  if (!selectedStructure) { alert("Choisis un format de tournoi."); return; }
+  const opts = tournamentOptions();
+  if (!confirm(`Créer le tournoi à ${tournamentPlayers.length} joueurs ?\n\n`
+             + `${selectedStructure.label}\n${selectedStructure.total_matches} matchs\n`
+             + `${tournamentMode.toUpperCase()} — ${optionsLabel(tournamentMode, opts)}`)) return;
+  const res = await api("POST", "/api/tournament", {
+    players: tournamentPlayers,
+    mode: tournamentMode,
+    options: opts,
+    n_groups: selectedStructure.groups,
+    qualify: selectedStructure.qualify,
+  });
+  if (res.error) { alert(res.error); return; }
+  showTournament();
+}
+
+async function deleteTournament() {
+  if (!confirm("Supprimer le tournoi ?\n\nLe calendrier est perdu, "
+             + "mais les parties jouées restent dans l'historique.")) return;
+  await api("DELETE", "/api/tournament");
+  showTournament();
+}
+
+// ---- Tournoi en cours ----
+function renderTournament(state) {
+  const champ = document.getElementById("tournament-champion");
+  const reglage = `<div class="muted-txt" style="text-align:center;margin-bottom:10px">
+      ${state.players.length} joueurs · ${state.mode.toUpperCase()}
+      · ${optionsLabel(state.mode, state.options)}</div>`;
+  champ.innerHTML = (state.champion
+    ? `<div class="card champion-card">🏆 <b>${state.champion}</b> remporte le tournoi</div>`
+    : "") + reglage;
+  renderMatches(state);
+  renderRanking(state);
+}
+
+function matchLabel(m) {
+  const [a, b] = m.players;
+  return `${a || "?"} <span class="vs">vs</span> ${b || "?"}`;
+}
+
+function renderMatches(state) {
+  // regroupés par phase, dans l'ordre du calendrier
+  const phases = [];
+  state.matches.forEach(m => {
+    let p = phases.find(x => x.name === m.phase);
+    if (!p) phases.push(p = { name: m.phase, matches: [] });
+    p.matches.push(m);
+  });
+
+  document.getElementById("matches-list").innerHTML = phases.map(p => `
+    <div class="card">
+      <div class="eyebrow">${p.name}</div>
+      ${p.matches.map(m => renderMatchRow(m)).join("")}
+    </div>`).join("");
+}
+
+function renderMatchRow(m) {
+  if (walkoverFor === m.id) {
+    return `<div class="match-row">
+      <span class="muted-txt">Qui a gagné sans jouer ?</span>
+      <span>
+        ${m.players.map(p =>
+          `<button class="btn-ghost small" onclick="declareWalkover('${m.id}','${esc(p)}')">${p}</button>`).join("")}
+        <button class="btn-ghost small" onclick="cancelWalkover()">Annuler</button>
+      </span>
+    </div>`;
+  }
+  if (m.state === "joué") {
+    const loser = m.players.find(p => p !== m.winner);
+    return `<div class="match-row done">
+      <span><b>${m.winner}</b> bat ${loser || "?"}${m.walkover ? " <i>(forfait)</i>" : ""}</span>
+      <button class="btn-ghost small" onclick="resetMatch('${m.id}')">↺</button>
+    </div>`;
+  }
+  if (m.state === "jouable") {
+    return `<div class="match-row">
+      <span>${matchLabel(m)}</span>
+      <span>
+        <button class="btn-ghost small" onclick="askWalkover('${m.id}')">Forfait</button>
+        <button class="validate small" onclick="startTournamentMatch('${m.id}')">Jouer</button>
+      </span>
+    </div>`;
+  }
+  return `<div class="match-row waiting">
+    <span>${m.from ? m.from.map(refLabel).join(" <span class='vs'>vs</span> ") : matchLabel(m)}</span>
+    <span class="muted-txt">en attente</span>
+  </div>`;
+}
+
+// "A1" -> "1er poule A" ; "W:T1-2" -> "vainqueur T1-2"
+function refLabel(ref) {
+  if (ref.startsWith("W:")) return `vainqueur ${ref.slice(2)}`;
+  const rank = ref.slice(1);
+  return `${rank}${rank === "1" ? "er" : "e"} poule ${ref[0]}`;
+}
+
+async function startTournamentMatch(id) {
+  const res = await api("POST", "/api/tournament/start_match", { id });
+  if (res.error) { alert(res.error); return; }
+  enterGame(res.state);
+}
+
+function askWalkover(id) { walkoverFor = id; showTournament(); }
+function cancelWalkover() { walkoverFor = null; showTournament(); }
+
+async function declareWalkover(id, winner) {
+  walkoverFor = null;
+  const res = await api("POST", "/api/tournament/walkover", { id, winner });
+  if (res.error) alert(res.error);
+  showTournament();
+}
+
+async function resetMatch(id) {
+  if (!confirm("Annuler ce résultat ?\n\nLa partie correspondante sera supprimée "
+             + "et le match redeviendra jouable.")) return;
+  await api("POST", "/api/tournament/reset_match", { id });
+  showTournament();
+}
+
+function renderRanking(state) {
+  const poules = state.standings.map(g => `
+    <div class="card">
+      <div class="eyebrow">Poule ${g.group}${g.complete ? " · terminée" : ""}</div>
+      <table class="rank-table">
+        <tr><th>#</th><th>Joueur</th><th>J</th><th>V</th></tr>
+        ${g.rows.map((r, i) => `<tr class="${i < state.qualify ? "qualified" : ""}">
+          <td>${r.rank}</td><td>${r.name}</td><td>${r.played}</td><td>${r.wins}</td></tr>`).join("")}
+      </table>
+    </div>`).join("");
+
+  const elo = `
+    <div class="card">
+      <div class="eyebrow">Classement Elo — toutes parties confondues</div>
+      <div class="muted-txt" style="margin-bottom:6px">Toutes les parties comptent,
+        tournoi ou non. Un forfait ne compte pas.</div>
+      <table class="rank-table">
+        <tr><th>#</th><th>Joueur</th><th>Elo</th><th>J</th><th>V</th></tr>
+        ${state.elo.map(r => `<tr>
+          <td>${r.rank}</td><td>${r.name}</td>
+          <td><b>${r.elo}</b></td><td>${r.games}</td><td>${r.wins}</td></tr>`).join("")}
+      </table>
+    </div>`;
+
+  document.getElementById("ranking-list").innerHTML = poules + elo;
 }
 
 // ---- utilitaires ----
