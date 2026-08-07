@@ -136,7 +136,7 @@ def new_game():
     players  = data.get("players", [])
     mode       = data.get("mode", "501")
     double_in  = data.get("double_in", False)
-    double_out = data.get("double_out", True)
+    double_out = data.get("double_out", False)
     cut_throat = data.get("cut_throat", False)
 
     if len(players) < 1:
@@ -375,9 +375,9 @@ def tournament_results(tournoi):
     return results
 
 
-def tournament_elo(tournoi):
-    """Elo des inscrits, sous forme {nom: points} pour départager les poules."""
-    return {r["name"]: r["elo"] for r in elo.compute(load_games(), tournoi["players"])}
+def tournament_elo(tournoi=None):
+    """Elo sous forme {nom: points}, pour départager les poules à égalité."""
+    return {r["name"]: r["elo"] for r in elo.compute(load_games(), load_saved_players())}
 
 
 @app.route("/api/tournament/structures")
@@ -394,7 +394,7 @@ def tournament_state():
     results = tournament_results(tournoi)
     view = tournament.view(tournoi, results, tournament_elo(tournoi))
     view["exists"] = True
-    view["elo"] = elo.compute(load_games(), tournoi["players"])
+    view["elo"] = elo.compute(load_games(), load_saved_players())
     return jsonify(view)
 
 
@@ -498,15 +498,9 @@ def tournament_reset_match():
 
 @app.route("/api/elo")
 def get_elo():
-    # Classement Elo. Sans tournoi, il porte sur tous les joueurs enregistrés ;
-    # avec un tournoi en cours, il est restreint à ses inscrits — une partie
-    # avec un invité extérieur ne doit pas fausser le classement du groupe.
-    tournoi = load_tournament()
-    roster = tournoi["players"] if tournoi else load_saved_players()
-    return jsonify({
-        "roster_source": "tournoi" if tournoi else "joueurs enregistrés",
-        "ranking": elo.compute(load_games(), roster),
-    })
+    # Classement Elo de TOUS les joueurs enregistrés : toutes les parties
+    # comptent, tournoi ou non. Ceux qui n'ont pas encore joué restent à 1000.
+    return jsonify({"ranking": elo.compute(load_games(), load_saved_players())})
 
 
 @app.route("/api/stats")

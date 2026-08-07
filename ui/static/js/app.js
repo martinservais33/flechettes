@@ -170,8 +170,24 @@ function gameSignature(state) {
 }
 let _dismissedGameSig = null;
 
+// Classement Elo sur l'accueil : tout le monde y figure, même sans avoir
+// encore joué (1000 points de départ), et toutes les parties comptent.
+async function renderHomeElo() {
+  const res = await api("GET", "/api/elo");
+  const el = document.getElementById("home-elo");
+  const rows = res.ranking || [];
+  el.innerHTML = rows.length
+    ? rows.map(r => `<div class="elo-line">
+        <span class="elo-rank">${r.rank}</span>
+        <span class="elo-name">${r.name}</span>
+        <span class="elo-pts">${r.elo}</span>
+      </div>`).join("")
+    : "<span style='color:var(--muted3)'>Aucun joueur enregistré</span>";
+}
+
 async function showHome() {
   showScreen("screen-home");
+  renderHomeElo();
   const res = await api("GET", "/api/state");
   const card = document.getElementById("resume-card");
   if (!res.error && !res.winner) {
@@ -211,6 +227,7 @@ async function loadSavedPlayers() {
   const res = await api("GET", "/api/players");
   savedPlayers = res.players;
   renderSavedPlayers();
+  renderHomeElo();
 }
 
 function renderSavedPlayers() {
@@ -241,6 +258,7 @@ async function deleteSavedPlayer(name) {
   players = players.filter(p => p !== name);
   renderPlayers();
   renderSavedPlayers();
+  renderHomeElo();
 }
 
 async function createPlayer() {
@@ -253,6 +271,7 @@ async function createPlayer() {
   if (!players.includes(name)) players.push(name);
   renderPlayers();
   renderSavedPlayers();
+  renderHomeElo();
 }
 
 document.getElementById("player-input").addEventListener("keydown", e => {
@@ -1155,8 +1174,8 @@ function renderRanking(state) {
   const elo = `
     <div class="card">
       <div class="eyebrow">Classement Elo — toutes parties confondues</div>
-      <div class="muted-txt" style="margin-bottom:6px">Les parties amicales comptent aussi,
-        mais seulement entre inscrits. Un forfait ne compte pas.</div>
+      <div class="muted-txt" style="margin-bottom:6px">Toutes les parties comptent,
+        tournoi ou non. Un forfait ne compte pas.</div>
       <table class="rank-table">
         <tr><th>#</th><th>Joueur</th><th>Elo</th><th>J</th><th>V</th></tr>
         ${state.elo.map(r => `<tr>

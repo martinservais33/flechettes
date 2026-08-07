@@ -41,7 +41,7 @@
       </div>
       <div class="opts" id="x01-options">
         <label><input type="checkbox" id="double-in" /> Double In</label>
-        <label><input type="checkbox" id="double-out" checked /> Double Out</label>
+        <label><input type="checkbox" id="double-out" /> Double Out</label>
       </div>
       <div class="opts" id="cricket-options" style="display:none">
         <label><input type="checkbox" id="cut-throat" /> Cut-throat (le perdant prend les points)</label>
@@ -49,6 +49,13 @@
     </div>
 
     <button class="btn-primary big" onclick="startGame()">LANCER LA PARTIE</button>
+
+    <!-- Classement Elo — toutes les parties comptent, pour tout le monde -->
+    <div class="card" id="home-elo-card" style="margin-top:22px">
+      <div class="eyebrow">Classement Elo</div>
+      <div id="home-elo"></div>
+    </div>
+
     <button class="btn-ghost big" style="margin-top:8px" onclick="showTournament()">🏆 TOURNOI GRASSIENS</button>
     <button class="btn-ghost big" style="margin-top:8px" onclick="showHistory()">Anciennes parties & stats</button>
     <button id="exit-kiosk-btn" class="btn-ghost big" style="display:none;margin-top:8px" onclick="exitKiosk()">✕ Quitter l'application</button>
@@ -153,7 +160,7 @@
         </div>
         <div class="opts" id="tp-x01-options">
           <label><input type="checkbox" id="tp-double-in" /> Double In</label>
-          <label><input type="checkbox" id="tp-double-out" checked /> Double Out</label>
+          <label><input type="checkbox" id="tp-double-out" /> Double Out</label>
         </div>
         <div class="opts" id="tp-cricket-options" style="display:none">
           <label><input type="checkbox" id="tp-cut-throat" /> Cut-throat (le perdant prend les points)</label>

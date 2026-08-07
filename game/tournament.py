@@ -144,7 +144,7 @@ def create(players, mode="501", options=None, n_groups=2, qualify=1, shuffle=Tru
     return {
         "name": "Tournoi Grassiens",
         "mode": mode,
-        "options": options or {"double_in": False, "double_out": True},
+        "options": options or {"double_in": False, "double_out": False},
         "players": players,
         "groups": groups,
         "qualify": qualify,

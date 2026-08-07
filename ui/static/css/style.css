@@ -371,6 +371,16 @@ input:focus { outline: none; border-color: var(--yellow); }
    ============================================================ */
 .muted-txt { color: var(--muted); font-size: .8rem; }
 
+/* Classement Elo de l'accueil : joueur à gauche, points à droite */
+.elo-line {
+  display: flex; align-items: center; gap: 10px;
+  padding: 6px 0; border-bottom: 1px solid var(--muted3);
+}
+.elo-line:last-child { border-bottom: none; }
+.elo-rank { color: var(--muted); font-family: var(--mono); font-size: .75rem; width: 20px; }
+.elo-name { flex: 1; font-family: var(--disp); font-size: .9rem; }
+.elo-pts { font-family: var(--disp); font-size: 1rem; color: var(--yellow); }
+
 /* À la création, on compose une liste parmi tous les joueurs enregistrés :
    un simple changement de couleur de texte ne suffit pas à distinguer les
    inscrits, on remplit la pastille. */
