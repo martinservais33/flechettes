@@ -5,7 +5,7 @@ from game.rules.clock import Clock
 
 
 class Game:
-    def __init__(self, players, mode="501", double_in=False, double_out=True, cut_throat=False):
+    def __init__(self, players, mode="501", double_in=False, double_out=False, cut_throat=False):
         self.players = [Player(name) for name in players]
         self.mode = mode
         self.cut_throat = cut_throat

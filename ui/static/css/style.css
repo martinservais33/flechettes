@@ -353,6 +353,8 @@ input:focus { outline: none; border-color: var(--yellow); }
   border-radius: 18px; border: 5px solid var(--yellow);
   box-shadow: 0 0 70px rgba(255,60,220,.8);
 }
+/* Vidéos de victoire : format libre, jamais déformées */
+video.anim-media { display: block; background: #000; object-fit: contain; }
 
 /* ============================================================
    RESPONSIVE

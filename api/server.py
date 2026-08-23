@@ -3,6 +3,7 @@ import os
 import sys
 import json
 import time
+import unicodedata
 from datetime import datetime
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
@@ -161,7 +162,7 @@ def state():
 
 @app.route("/api/throw", methods=["POST"])
 def throw():
-    # Appelé par un clic sur un secteur dans le navigateur (saisie manuelle),
+    # Appelé par un clic sur un secteur dans le navigateur (saisie man uelle),
     # ou par le code de détection caméra (Phase 3) — même route dans les deux cas.
     game, err, code = get_game()
     if err:
@@ -241,6 +242,43 @@ def archive():
         return err, code
     gid = archive_game(game)
     return jsonify({"ok": True, "id": gid})
+
+
+# ------------------------------------------------------------------
+# Animations personnelles
+#
+# Un joueur peut avoir sa propre vidéo de victoire : il suffit de déposer
+# un fichier à son nom dans ui/static/animations/players/. Aucun réglage,
+# aucune déclaration — le rapprochement se fait sur le nom, normalisé des
+# deux côtés (minuscules, sans accents ni séparateurs) pour que
+# "Jean-Marc.mp4" retrouve bien le joueur "jean marc".
+# ------------------------------------------------------------------
+PLAYER_ANIM_DIR = os.path.join(
+    os.path.dirname(os.path.dirname(__file__)), "ui", "static", "animations", "players"
+)
+PLAYER_ANIM_EXT = (".mp4", ".webm", ".mov", ".m4v", ".gif")
+
+
+def anim_slug(name):
+    """Clé de rapprochement joueur <-> fichier. Doit rester identique à slug() côté JS."""
+    decomposed = unicodedata.normalize("NFD", name)
+    stripped = "".join(c for c in decomposed if not unicodedata.combining(c))
+    return "".join(c for c in stripped.lower() if c.isascii() and c.isalnum())
+
+
+@app.route("/api/animations/players")
+def get_player_animations():
+    # Appelé au chargement de la page : renvoie {slug: nom de fichier}.
+    found = {}
+    if os.path.isdir(PLAYER_ANIM_DIR):
+        for filename in sorted(os.listdir(PLAYER_ANIM_DIR)):
+            stem, ext = os.path.splitext(filename)
+            if ext.lower() not in PLAYER_ANIM_EXT:
+                continue
+            slug = anim_slug(stem)
+            if slug:
+                found[slug] = filename
+    return jsonify({"players": found})
 
 
 # ------------------------------------------------------------------

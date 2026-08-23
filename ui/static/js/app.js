@@ -12,50 +12,109 @@ let currentMultiplier = 1;
 let _clockLiveTarget = 1;
 
 // ============================================================
-//  Moteur d'animations (GIF sur scores spéciaux)
+//  Moteur d'animations (GIF / vidéo sur scores spéciaux)
 //  Manifeste : événement -> liste de fichiers (tiré au hasard).
 //  Ajouter une anim = déposer le fichier dans /static/animations/
 //  et ajouter une ligne dans manifest.json.
+//
+//  Cas particulier des vidéos de victoire personnelles : déposer un
+//  fichier au nom du joueur dans /static/animations/players/ suffit,
+//  le serveur les découvre seul (voir /api/animations/players).
 // ============================================================
 const ANIM_DEFAULT_MS = 5000;   // durée d'affichage par défaut (ms)
+const ANIM_MAX_MS = 20000;      // secours tant que la durée réelle est inconnue
 let ANIM_MANIFEST = {};
 const _animQueue = [];
 let _animTimer = null;
+let _animGen = 0;               // invalide les callbacks des médias déjà remplacés
+
+// Clé de rapprochement joueur <-> fichier.
+// Doit rester identique à anim_slug() côté serveur.
+function slug(s) {
+  return (s || "").normalize("NFD").replace(/[̀-ͯ]/g, "")
+                  .toLowerCase().replace(/[^a-z0-9]/g, "");
+}
 
 (async () => {
   try { ANIM_MANIFEST = await (await fetch("/static/animations/manifest.json")).json(); }
   catch (e) { ANIM_MANIFEST = {}; }
+  // Vidéos personnelles : durée 0 = on attend la fin réelle du média.
+  try {
+    const res = await (await fetch("/api/animations/players")).json();
+    for (const [key, file] of Object.entries(res.players || {}))
+      ANIM_MANIFEST["victoire:" + key] = { files: ["players/" + file], duration: 0 };
+  } catch (e) { /* pas de vidéo perso : on gardera l'anim générique */ }
 })();
 
 // Un événement peut être soit une liste de fichiers (durée par défaut),
 // soit un objet { files: [...], duration: ms } pour régler la durée.
+// duration 0 = durée réelle du média (vidéo) ou durée par défaut (image).
 function animConfig(eventType) {
   const v = ANIM_MANIFEST[eventType];
   if (!v) return null;
-  if (Array.isArray(v)) return { files: v, duration: ANIM_DEFAULT_MS };
-  return { files: v.files || [], duration: v.duration || ANIM_DEFAULT_MS };
+  if (Array.isArray(v)) return { files: v, duration: 0 };
+  return { files: v.files || [], duration: v.duration || 0 };
 }
 
+function isVideoFile(file) { return /\.(mp4|webm|mov|m4v)$/i.test(file); }
+
+// Encodage segment par segment : encodeURIComponent transformerait
+// le "/" du sous-dossier players/ en %2F.
+function animUrl(file) {
+  return "/static/animations/" + file.split("/").map(encodeURIComponent).join("/");
+}
+
+// Retourne true si une animation a été mise en file (permet un repli).
 function triggerAnimation(eventType) {
   const cfg = animConfig(eventType);
-  if (!cfg || !cfg.files.length) return;
+  if (!cfg || !cfg.files.length) return false;
   const file = cfg.files[Math.floor(Math.random() * cfg.files.length)];
   _animQueue.push({ file, duration: cfg.duration });
   if (!_animTimer) playNextAnimation();
+  return true;
 }
 
 function playNextAnimation() {
   const overlay = document.getElementById("anim-overlay");
-  if (!_animQueue.length) { overlay.classList.remove("show"); overlay.innerHTML = ""; _animTimer = null; return; }
+  const gen = ++_animGen;
+  if (_animTimer) { clearTimeout(_animTimer); _animTimer = null; }
+  if (!_animQueue.length) { overlay.classList.remove("show"); overlay.innerHTML = ""; return; }
   const { file, duration } = _animQueue.shift();
-  // élément créé à la demande puis retiré → mémoire stable même avec beaucoup de GIF
-  overlay.innerHTML = `<img class="anim-media" src="/static/animations/${encodeURIComponent(file)}" alt="">`;
+  // élément créé à la demande puis retiré → mémoire stable même avec beaucoup de médias
+  if (isVideoFile(file)) {
+    const video = document.createElement("video");
+    video.className = "anim-media";
+    video.src = animUrl(file);
+    video.playsInline = true;
+    // On tente d'abord avec le son ; les navigateurs qui l'interdisent sans
+    // geste utilisateur rejettent play(), on repasse alors en muet.
+    video.play().catch(() => { video.muted = true; video.play().catch(() => {}); });
+    // gen fige la génération : une vidéo remplacée entre-temps ne fait pas avancer la file.
+    video.onended = () => { if (gen === _animGen) playNextAnimation(); };
+    // Sans durée imposée par le manifeste, la vidéo est jouée en entier :
+    // dès que sa longueur réelle est connue, le minuteur s'aligne dessus.
+    // Il ne sert alors qu'au cas où "ended" n'arrive jamais (fichier
+    // illisible) — sans lui la file resterait bloquée sur un écran noir.
+    // Une durée explicite dans le manifeste reste prioritaire : c'est un
+    // choix délibéré de couper court.
+    if (!duration) {
+      video.onloadedmetadata = () => {
+        if (gen !== _animGen || !isFinite(video.duration)) return;
+        clearTimeout(_animTimer);
+        _animTimer = setTimeout(playNextAnimation, video.duration * 1000 + 2000);
+      };
+    }
+    overlay.innerHTML = "";
+    overlay.appendChild(video);
+    _animTimer = setTimeout(playNextAnimation, duration || ANIM_MAX_MS);
+  } else {
+    overlay.innerHTML = `<img class="anim-media" src="${animUrl(file)}" alt="">`;
+    _animTimer = setTimeout(playNextAnimation, duration || ANIM_DEFAULT_MS);
+  }
   overlay.classList.add("show");
-  _animTimer = setTimeout(playNextAnimation, duration);
 }
 
 function dismissAnimation() {
-  if (_animTimer) { clearTimeout(_animTimer); _animTimer = null; }
   playNextAnimation();
 }
 
@@ -72,6 +131,17 @@ function detectAnimations(mode, finisher, bust) {
     triggerAnimation("cricket_trois_points");
   }
   // à venir : 180 exact, bullseye, checkout fermé, etc.
+}
+
+// Victoire : la vidéo personnelle du vainqueur si elle existe, sinon
+// l'animation générique. Le garde-fou évite de rejouer la vidéo à chaque
+// tour de polling tant qu'on reste sur la même victoire.
+let _celebrated = null;
+
+function celebrateWinner(name) {
+  if (_celebrated === name) return;
+  _celebrated = name;
+  if (!triggerAnimation("victoire:" + slug(name))) triggerAnimation("victoire");
 }
 
 // ---- Pause de fin de tour (récupération des fléchettes) ----
@@ -99,7 +169,14 @@ function clearHold() {
 // (lancer local, validation, ou polling de synchro).
 function applyState(state, bust = false) {
   if (!state || state.error) return;
-  if (state.winner) { clearHold(); renderGame(state); showWin(state.winner); return; }
+  if (state.winner) {
+    clearHold();
+    celebrateWinner(state.winner);
+    renderGame(state);
+    showWin(state.winner);
+    return;
+  }
+  _celebrated = null;   // partie en cours : prêt à célébrer la prochaine victoire
 
   const turns = countTurns(state);
   // Un tour vient de se terminer → pause pour récupérer les fléchettes
