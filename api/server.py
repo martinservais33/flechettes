@@ -129,6 +129,27 @@ def index():
 # ------------------------------------------------------------------
 # API parties
 # ------------------------------------------------------------------
+def state_payload(game):
+    """État de la partie tel que l'interface l'attend.
+
+    Enrichit la vue du moteur avec le contexte tournoi. `Game` l'ignore
+    volontairement : il connaît les règles, pas le calendrier. Toutes les
+    routes qui renvoient un état passent par ici, sans quoi le bandeau
+    « match de tournoi » disparaîtrait à chaque fléchette.
+    """
+    view = game.state_view()
+    mid = getattr(game, "tournament_match", None)
+    view["tournament_match"] = mid
+    view["tournament_phase"] = None
+    if mid:
+        tournoi = load_tournament()
+        match = next((m for m in (tournoi or {}).get("matches", [])
+                      if m["id"] == mid), None)
+        if match:
+            view["tournament_phase"] = match["phase"]
+    return view
+
+
 @app.route("/api/new_game", methods=["POST"])
 def new_game():
     # Appelé par le bouton "Lancer la partie" dans le navigateur (écran tactile ou téléphone).
@@ -147,7 +168,7 @@ def new_game():
     auto_archive_unfinished(_game)
 
     _game = Game(players, mode=mode, double_in=double_in, double_out=double_out, cut_throat=cut_throat)
-    return jsonify({"ok": True, "state": _game.state_view()})
+    return jsonify({"ok": True, "state": state_payload(_game)})
 
 
 @app.route("/api/state")
@@ -157,7 +178,7 @@ def state():
     game, err, code = get_game()
     if err:
         return err, code
-    return jsonify(game.state_view())
+    return jsonify(state_payload(game))
 
 
 @app.route("/api/throw", methods=["POST"])
@@ -182,7 +203,7 @@ def throw():
     result = game.throw(dart)
     if result == "win":
         archive_game(game)
-    return jsonify({"result": result, "state": game.state_view()})
+    return jsonify({"result": result, "state": state_payload(game)})
 
 
 @app.route("/api/end_turn", methods=["POST"])
@@ -195,7 +216,7 @@ def end_turn():
     result = game.end_turn()
     if result == "win":
         archive_game(game)
-    return jsonify({"result": result, "state": game.state_view()})
+    return jsonify({"result": result, "state": state_payload(game)})
 
 
 @app.route("/api/undo", methods=["POST"])
@@ -205,7 +226,7 @@ def undo():
     if err:
         return err, code
     ok = game.undo()
-    return jsonify({"ok": ok, "state": game.state_view()})
+    return jsonify({"ok": ok, "state": state_payload(game)})
 
 
 @app.route("/api/undo_dart", methods=["POST"])
@@ -220,7 +241,7 @@ def undo_dart():
     # "non terminée" : on met à jour son enregistrement (upsert par archive_id).
     if ok and getattr(game, "archive_id", None) and not game.winner:
         archive_game(game)
-    return jsonify({"ok": ok, "state": game.state_view()})
+    return jsonify({"ok": ok, "state": state_payload(game)})
 
 
 @app.route("/api/set_score", methods=["POST"])
@@ -231,7 +252,7 @@ def set_score():
         return err, code
     data = request.json
     game.set_score(data["player_idx"], data["score"])
-    return jsonify({"ok": True, "state": game.state_view()})
+    return jsonify({"ok": True, "state": state_payload(game)})
 
 
 @app.route("/api/archive", methods=["POST"])
@@ -383,7 +404,7 @@ def resume_game(game_id):
     resumed.archive_id = record["id"]
     _game = resumed
 
-    return jsonify({"ok": True, "state": _game.state_view()})
+    return jsonify({"ok": True, "state": state_payload(_game)})
 
 
 # ------------------------------------------------------------------
@@ -490,7 +511,7 @@ def tournament_start_match():
                  double_out=opts.get("double_out", True),
                  cut_throat=opts.get("cut_throat", False))
     _game.tournament_match = mid
-    return jsonify({"ok": True, "state": _game.state_view()})
+    return jsonify({"ok": True, "state": state_payload(_game)})
 
 
 @app.route("/api/tournament/walkover", methods=["POST"])

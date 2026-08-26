@@ -213,7 +213,7 @@ async function endHold() {
 }
 
 function renderRecap(state, finisher, bust) {
-  document.getElementById("game-mode-label").textContent = modeLabel(state.mode);
+  renderGameTitle(state);
   renderScoreboard(state, { active: finisher.name, live: false });
   const chips = (finisher.last_throws || []).map((t, i) => {
     const last = i === (finisher.last_throws.length - 1);
@@ -479,8 +479,25 @@ async function undoDart() {
 // ============================================================
 //  RENDU DE L'ÉTAT DE JEU
 // ============================================================
-function renderGame(state) {
+// Titre de la partie : le mode, précédé du contexte. Les deux écrans qui
+// affichent ce titre (jeu et récapitulatif de fin de tour) passent par ici,
+// sinon le bandeau disparaîtrait pendant la pause entre deux volées.
+function renderGameTitle(state) {
   document.getElementById("game-mode-label").textContent = modeLabel(state.mode);
+  const ctx = document.getElementById("game-context");
+  if (state.tournament_match) {
+    // La phase ("Poule A", "Finale"...) vient du calendrier ; on garde un
+    // libellé générique si le match n'y est plus, plutôt que rien du tout.
+    ctx.textContent = "🏆 " + (state.tournament_phase || "Tournoi");
+    ctx.className = "game-context tournoi";
+  } else {
+    ctx.textContent = "Partie amicale";
+    ctx.className = "game-context amical";
+  }
+}
+
+function renderGame(state) {
+  renderGameTitle(state);
   buildSectorsGrid(state);
   renderScoreboard(state);
   renderGameMain(state);
@@ -601,10 +618,17 @@ function renderX01Main(state) {
   const avg = count ? (total / count).toFixed(1) : "—";
   const live = state.current_live_state || cp.state;
 
+  // Sortie conseillée, toujours en double out (voir checkout.js). Elle se
+  // recalcule à chaque flèche : il reste 3 - (flèches déjà lancées) en main.
+  const route = checkoutRoute(live.score, 3 - state.current_throws.length);
+
   return `<div class="gm-panel center-col">
       <div class="turn-label">AU TOUR DE</div>
       <div class="turn-name">${cp.name}</div>
       <div class="turn-score">${live.score}</div>
+      ${route ? `<div class="checkout"><span class="checkout-label">SORTIE</span>` +
+                route.map(d => `<span class="checkout-dart">${d}</span>`).join("") +
+                `</div>` : ""}
       ${dartRow(state)}
     </div>
     <div class="gm-panel side-col tv-hide">

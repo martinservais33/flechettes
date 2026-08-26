@@ -65,7 +65,10 @@
   <div id="screen-game" class="screen">
     <header class="game-header">
       <button class="btn-ghost" onclick="showHome()">← Accueil</button>
-      <div class="game-title"><span id="game-mode-label"></span></div>
+      <div class="game-title">
+        <span id="game-context" class="game-context"></span>
+        <span id="game-mode-label"></span>
+      </div>
       <div class="sensor"><span class="dot"></span>CAPTEUR</div>
     </header>
 
@@ -196,6 +199,7 @@
   <!-- Overlay d'animations (GIF sur scores spéciaux) -->
   <div id="anim-overlay" class="anim-overlay" onclick="dismissAnimation()"></div>
 
+  <script src="/static/js/checkout.js"></script>
   <script src="/static/js/app.js"></script>
 </body>
 </html>

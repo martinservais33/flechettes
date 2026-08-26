@@ -163,6 +163,16 @@ input:focus { outline: none; border-color: var(--yellow); }
 .game-header .btn-ghost { background: var(--ink); color: var(--yellow); border-color: var(--ink); padding: 8px 14px; font-size: .8rem; }
 .game-title { font-family: var(--disp); font-size: 1.3rem; color: var(--ink); letter-spacing: .5px; }
 .game-title .sub { opacity: .7; }
+
+/* Contexte de la partie : tournoi ou amicale. Le doré n'est utilisé que
+   pour le tournoi — l'amicale reste volontairement effacée. */
+.game-context {
+  font-family: var(--mono); font-size: .68rem; letter-spacing: .12em;
+  padding: 3px 9px; border-radius: 999px; margin-right: 9px;
+  vertical-align: middle; white-space: nowrap;
+}
+.game-context.tournoi { background: var(--yellow); color: var(--ink); font-weight: 700; }
+.game-context.amical  { color: var(--muted); border: 1px solid var(--muted2); }
 .sensor { display: flex; align-items: center; gap: 8px; background: var(--ink); color: var(--yellow); border: 2px solid var(--yellow); border-radius: 20px; padding: 6px 14px; font-family: var(--mono); font-weight: 700; font-size: .72rem; }
 .sensor .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--green); }
 
@@ -193,6 +203,20 @@ input:focus { outline: none; border-color: var(--yellow); }
 .turn-name { font-family: var(--disp); font-size: 2.6rem; line-height: 1.05; }
 .turn-score { font-family: var(--disp); font-size: 6rem; line-height: 1; }
 .turn-target { font-family: var(--disp); font-size: 5rem; line-height: 1; }
+
+/* Sortie conseillée — discrète, elle ne doit pas concurrencer le score */
+.checkout {
+  display: flex; gap: 8px; align-items: center; justify-content: center;
+  flex-wrap: wrap; margin-top: 10px;
+}
+.checkout-label {
+  font-size: .72rem; letter-spacing: .16em; color: var(--muted);
+}
+.checkout-dart {
+  font-family: var(--disp); font-size: 1rem;
+  padding: 4px 12px; border-radius: 6px;
+  color: var(--green); border: 2px solid var(--green);
+}
 
 /* Fléchettes du tour — dernière mise en avant */
 .dart-row { display: flex; gap: 12px; align-items: center; justify-content: center; flex-wrap: wrap; margin-top: 8px; min-height: 40px; }
@@ -461,6 +485,9 @@ body.tv .gm-panel { padding: 10px 14px; }
 /* --- En-tête et badges joueurs : compacts, ils ne sont pas l'essentiel --- */
 body.tv .game-header { padding: 4px 14px; margin-bottom: 8px; }
 body.tv .game-title { font-size: clamp(.9rem, 2.2vh, 1.4rem); }
+/* Le bandeau a sa propre taille : sans cette règle il resterait figé et
+   illisible depuis le canapé, alors que c'est l'info à saisir d'un coup d'oeil. */
+body.tv .game-context { font-size: clamp(.65rem, 1.7vh, 1.15rem); padding: 4px 13px; }
 body.tv #scoreboard { gap: 8px; margin-bottom: 8px; }
 body.tv .ps-card { padding: 5px 16px; }
 body.tv .ps-name { font-size: clamp(.7rem, 1.7vh, 1.1rem); }
@@ -472,6 +499,11 @@ body.tv .turn-name { font-size: clamp(2rem, 7vh, 5rem); }
 body.tv .turn-score,
 body.tv .recap-value { font-size: clamp(5rem, 21vh, 15rem); }
 body.tv .turn-target { font-size: clamp(4rem, 18vh, 13rem); }
+
+/* --- Sortie conseillée : lisible depuis le canapé, sans voler la vedette au score --- */
+body.tv .checkout { gap: 10px; margin-top: 6px; }
+body.tv .checkout-label { font-size: clamp(.6rem, 1.5vh, 1rem); }
+body.tv .checkout-dart { font-size: clamp(1rem, 2.8vh, 2rem); padding: 4px 16px; }
 
 /* --- Les fléchettes du tour, lisibles de loin --- */
 body.tv .dart-row { gap: 16px; min-height: 0; }
