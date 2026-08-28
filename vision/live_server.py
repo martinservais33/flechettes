@@ -30,11 +30,15 @@ from board import (R_BULL, R_DOUBLE_IN, R_DOUBLE_OUT, R_OUTER_BULL,
                    R_TRIPLE_IN, R_TRIPLE_OUT, SECTORS, score_from_point,
                    sector_center_angle)
 from calib_model import fit_camera, ray_from_column, triangulate
-from detector import SETTLE_PIXELS, changed_pixels, extract_impact, preprocess
+from detector import (REMOVAL_DELTA, SETTLE_PIXELS, brightening,
+                      changed_pixels, extract_impact, preprocess)
 from test_cameras import open_camera
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 DATASET_DIR = os.path.join(HERE, "dataset")
+DIAG_DIR = os.path.join(HERE, "dataset_diag")
+KEEP_DIAG = 60     # instrumentation : mains et mouvements longs, pour caler
+                   # MAX_THROW_TICKS et MAX_DART_AREA sur des mesures reelles
 KEEP_EVENTS = 20   # fenêtre glissante : seuls les N derniers événements sont
                    # conservés sur disque (évite de saturer la carte SD)
 CALIB = json.load(open(os.path.join(HERE, "calibration.json")))["cams"]
@@ -44,8 +48,16 @@ ROTATIONS = {int(k): v for k, v in json.load(open(os.path.join(HERE, "rotations.
 ROTATE_CODES = {90: cv2.ROTATE_90_COUNTERCLOCKWISE, 180: cv2.ROTATE_180, 270: cv2.ROTATE_90_CLOCKWISE}
 
 SETTLE_TICKS = 5          # frames stables consécutives pour valider l'impact
-MOTION_PIXELS = 800       # pixels changés vs référence pour déclencher
-MAX_THROW_TICKS = 8       # frames instables max pour un vrai lancer :
+MOTION_PIXELS = 200       # pixels changés vs référence pour déclencher.
+                          # Mesuré le 2026-08-28 avec le cadre resserré sur la
+                          # cible : bruit sur scène statique <= 3 px (273
+                          # échantillons), plus faible lancer réel 373 px.
+                          # À 800 (valeur calibrée sur l'ancien cadre, qui
+                          # contenait la fléchette entière) 19 lancers sur 20
+                          # ne déclenchaient plus. Ce seuil est solidaire de
+                          # la taille de la ROI : le rebaisser si on la réduit
+                          # encore, le remonter si on l'élargit.
+MAX_THROW_TICKS = 5       # frames instables max pour un vrai lancer :
                           # une fléchette plante en 1-2 frames, une main
                           # (récupération, passage) bouge bien plus longtemps
 
@@ -321,6 +333,49 @@ def prune_dataset(keep=KEEP_EVENTS):
         shutil.rmtree(os.path.join(DATASET_DIR, old), ignore_errors=True)
 
 
+def prune_diag(keep=KEEP_DIAG):
+    try:
+        folders = sorted(d for d in os.listdir(DIAG_DIR)
+                         if os.path.isdir(os.path.join(DIAG_DIR, d)))
+    except FileNotFoundError:
+        return
+    for old in folders[:-keep]:
+        shutil.rmtree(os.path.join(DIAG_DIR, old), ignore_errors=True)
+
+
+def save_diag(kind, ref_frames, frames, ref_grays, grays, per_cam_ref,
+              unstable_ticks, results=None):
+    """Instrumentation : enregistre ce qui n est PAS retenu comme lancer.
+
+    Le dataset des lancers ne garde que les evenements classes "dart" :
+    on n a donc aucune mesure des mains et des mouvements longs, alors que
+    ce sont eux qui doivent fixer MAX_THROW_TICKS et MAX_DART_AREA. On
+    ecrit dans dataset_diag/, separe pour ne pas evincer les lancers.
+    """
+    if results is None:
+        results = {c: extract_impact(ref_grays[c], grays[c], surface_lines.get(c))
+                   for c in grays}
+    stamp = datetime.now().strftime("%Y%m%d_%H%M%S_") + kind
+    folder = os.path.join(DIAG_DIR, stamp)
+    os.makedirs(folder, exist_ok=True)
+    for c in CAMERA_INDICES:
+        if c in ref_frames:
+            cv2.imwrite(os.path.join(folder, f"cam{c}_before.jpg"), ref_frames[c])
+        if c in frames:
+            cv2.imwrite(os.path.join(folder, f"cam{c}_after.jpg"), frames[c])
+    meta = {
+        "kind": kind,
+        "stamp": stamp,
+        "time": datetime.now().strftime("%H:%M:%S"),
+        "unstable_ticks": unstable_ticks,
+        "changed_px": {str(c): per_cam_ref[c] for c in per_cam_ref},
+        "areas": {str(c): r[2] for c, r in results.items()},
+        "kinds": {str(c): r[0] for c, r in results.items()},
+    }
+    json.dump(meta, open(os.path.join(folder, "meta.json"), "w"), indent=2)
+    prune_diag()
+
+
 def detection_loop():
     # attendre les premières frames
     while len(_frames) < len(CAMERA_INDICES):
@@ -334,8 +389,9 @@ def detection_loop():
         time.sleep(1 / 15)
         frames, grays = grab_grays()
 
+        per_cam_ref = {c: changed_pixels(grays[c], ref_grays[c]) for c in grays}
         inter = max(changed_pixels(grays[c], prev_grays[c]) for c in grays)
-        vs_ref = max(changed_pixels(grays[c], ref_grays[c]) for c in grays)
+        vs_ref = max(per_cam_ref.values())
         prev_grays = grays
 
         if state["phase"] == "attente":
@@ -358,6 +414,24 @@ def detection_loop():
             # En mode jeu, en milieu de tour, ça vaut "Valider le tour".
             if unstable_ticks > MAX_THROW_TICKS:
                 print(f"mouvement long ({unstable_ticks} frames instables) : ignoré")
+                save_diag("long_movement", ref_frames, frames, ref_grays,
+                          grays, per_cam_ref, unstable_ticks)
+                if state["game_mode"] and 0 < state["turn_darts"] < 3:
+                    game_post("/end_turn")
+                state["turn_darts"] = 0
+                state["phase"] = "attente"
+                ref_frames, ref_grays = frames, grays
+                continue
+
+            # Retrait ou pose ? Décidé sur la MOYENNE des caméras : le signe
+            # du changement d'intensité sépare les deux (voir brightening()),
+            # mais une caméra isolée peut se tromper de signe sur un vrai
+            # lancer — on ne laisse donc pas une seule voix trancher.
+            deltas = [b for b in (brightening(ref_grays[c], grays[c]) for c in grays)
+                      if b is not None]
+            if deltas and sum(deltas) / len(deltas) > REMOVAL_DELTA:
+                save_diag("removal", ref_frames, frames, ref_grays, grays,
+                          per_cam_ref, unstable_ticks)
                 if state["game_mode"] and 0 < state["turn_darts"] < 3:
                     game_post("/end_turn")
                 state["turn_darts"] = 0
@@ -373,6 +447,8 @@ def detection_loop():
             kinds = [r[0] for r in results.values()]
 
             if "clear" in kinds:
+                save_diag("clear", ref_frames, frames, ref_grays, grays,
+                          per_cam_ref, unstable_ticks, results)
                 # main / retrait des fléchettes : nouvelle référence, pas d'événement.
                 # En mode jeu, un retrait en milieu de tour (1 ou 2 lancers)
                 # vaut "Valider le tour" ; après 3 lancers le jeu a déjà
@@ -393,6 +469,9 @@ def detection_loop():
                     "time": datetime.now().strftime("%H:%M:%S"),
                     "tips": {str(c): list(t) for c, t in tips.items()},
                     "areas": {str(c): r[2] for c, r in results.items()},
+                    "kinds": {str(c): r[0] for c, r in results.items()},
+                    "changed_px": {str(c): per_cam_ref[c] for c in per_cam_ref},
+                    "unstable_ticks": unstable_ticks,
                     "prediction": pred,
                     "truth": None,
                 }

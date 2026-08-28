@@ -16,3 +16,4 @@ calibration_points.json
 # Sauvegardes de calibration et references de montage (propres au Pi)
 calib_backup_*/
 reference_mapping/
+dataset_diag/

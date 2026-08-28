@@ -17,9 +17,15 @@ import numpy as np
 DIFF_THRESHOLD   = 28      # intensité mini pour considérer un pixel changé
 MIN_DART_AREA    = 60      # blob plus petit = bruit
 MAX_DART_AREA    = 12000   # blob plus grand = main / gros changement
-SETTLE_PIXELS    = 400     # nb de pixels changés entre 2 frames consécutives
-                           # en dessous duquel la scène est considérée stable
-LINE_MARGIN      = 6       # tolérance (px) autour de la ligne de surface
+SETTLE_PIXELS    = 200     # nb de pixels changés entre 2 frames consécutives
+                           # en dessous duquel la scène est considérée stable.
+                           # Proportionné à la ROI : le cadre resserré sur la
+                           # cible (~50 000 px au lieu de ~105 000) divise par
+                           # deux le nombre de pixels qu'un même mouvement
+                           # produit.
+LINE_MARGIN      = 12      # tolérance (px) autour de la ligne de surface
+REMOVAL_DELTA    = 5       # éclaircissement moyen (0-255) au-delà duquel
+                           # on conclut à un RETRAIT — voir brightening()
 
 
 def preprocess(frame):
@@ -32,6 +38,36 @@ def changed_pixels(gray_a, gray_b):
     """Nombre de pixels significativement différents entre deux frames."""
     diff = cv2.absdiff(gray_a, gray_b)
     return int(np.count_nonzero(diff > DIFF_THRESHOLD))
+
+
+def brightening(reference_gray, settled_gray):
+    """Variation d'intensité moyenne sur les pixels qui ont changé.
+
+    absdiff jette le SIGNE du changement : une fléchette qui se plante et une
+    fléchette qu'on retire produisent des blobs identiques, de même taille.
+    C'est ce qui faisait enregistrer les retraits comme des lancers, et
+    polluait la calibration avec des points cliqués sur une image où il n'y
+    avait plus rien.
+
+    Négatif = la zone s'est assombrie (objet apparu).
+    Positif = la zone s'est éclaircie (objet parti).
+
+    Mesuré sur 21 événements réels, en MOYENNE sur les caméras : poses de -91
+    à -38, retraits de +13 à +90. À prendre sur l'ensemble des caméras et non
+    caméra par caméra : sur un vrai lancer, une caméra isolée peut voir un
+    éclaircissement (+23 et +27 relevés sur la cam 2, fût clair sur fond
+    sombre) sans que ce soit un retrait.
+
+    Retourne None si trop peu de pixels ont changé pour conclure.
+    """
+    diff = cv2.absdiff(settled_gray, reference_gray)
+    _, mask = cv2.threshold(diff, DIFF_THRESHOLD, 255, cv2.THRESH_BINARY)
+    mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, np.ones((3, 3), np.uint8))
+    sel = mask > 0
+    if np.count_nonzero(sel) < MIN_DART_AREA:
+        return None
+    return float(settled_gray[sel].astype(np.int16).mean()
+                 - reference_gray[sel].astype(np.int16).mean())
 
 
 def extract_impact(reference_gray, settled_gray, line=None):
