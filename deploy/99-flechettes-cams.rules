@@ -1,0 +1,15 @@
+# Cameras flechettes : 3 x Sonix "Autodarts DIY Cam" (0c45:1915).
+#
+# Les index /dev/videoN sont attribues par le noyau dans l ordre d enumeration
+# (plus petit mineur libre) : ils changent au reboot ou apres un rebranchement.
+# /dev/v4l/by-id/ ne peut pas departager ces cameras : elles declarent toutes
+# le meme SerialNumber SN0001. Seul le port physique du hub est distinctif.
+#
+# KERNELS  = port physique du hub (1-1.X)
+# ATTR{index}=="0" = noeud de capture ("1" = noeud metadata, inutilisable)
+#
+# Les noms dartcam0/2/4 reprennent les identifiants logiques utilises comme
+# cles dans calibration.json, roi.json et surface.json : ne pas renumeroter.
+SUBSYSTEM=="video4linux", KERNELS=="1-1.1", ATTR{index}=="0", SYMLINK+="dartcam0"
+SUBSYSTEM=="video4linux", KERNELS=="1-1.3", ATTR{index}=="0", SYMLINK+="dartcam2"
+SUBSYSTEM=="video4linux", KERNELS=="1-1.4", ATTR{index}=="0", SYMLINK+="dartcam4"

@@ -28,8 +28,22 @@ TEST_DURATION = 10  # secondes
 SNAPSHOT_DIR = os.path.join(os.path.dirname(__file__), "snapshots")
 
 
-def open_camera(index):
-    cap = cv2.VideoCapture(index, cv2.CAP_V4L2)
+def resolve_device(index):
+    """Chemin du peripherique pour une camera logique.
+
+    Les index /dev/videoN sont reattribues par le noyau a chaque enumeration
+    USB (plus petit mineur libre) : ils ne designent pas une camera en
+    particulier. Les symlinks /dev/dartcamN, poses par les regles udev
+    99-flechettes-cams.rules, sont ancres sur le port physique du hub et
+    font foi des qu ils existent. Repli sur l index brut sinon.
+    """
+    stable = f"/dev/dartcam{index}"
+    return stable if os.path.exists(stable) else f"/dev/video{index}"
+
+
+def open_camera(index, stable=True):
+    device = resolve_device(index) if stable else f"/dev/video{index}"
+    cap = cv2.VideoCapture(device, cv2.CAP_V4L2)
     if not cap.isOpened():
         return None
     # MJPEG obligatoire : en YUYV brut, 3 caméras saturent le bus USB
@@ -51,7 +65,7 @@ def scan():
     working = []
     for dev in devices:
         index = int(dev.replace("/dev/video", ""))
-        cap = open_camera(index)
+        cap = open_camera(index, stable=False)
         if cap is None:
             print(f"  {dev}: impossible à ouvrir")
             continue
