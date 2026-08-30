@@ -17,6 +17,8 @@ l'image (netteté, orientation, champ de vision).
 
 import fcntl
 import glob
+import json
+import subprocess
 import os
 import sys
 import threading
@@ -53,6 +55,46 @@ def resolve_device(index):
     """
     stable = f"/dev/dartcam{index}"
     return stable if os.path.exists(stable) else f"/dev/video{index}"
+
+
+SETTINGS_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                             "camera_settings.json")
+WHITE_BALANCE = 5600    # temperature fixe, en kelvins
+
+
+def _reglages():
+    try:
+        with open(SETTINGS_FILE) as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return {}
+
+
+def fixer_exposition(index):
+    """Passe la camera en exposition et balance des blancs MANUELLES.
+
+    En automatique, le moindre changement de luminosite dans le champ fait
+    rebasculer toute l'image : mesure du 2026-08-30, 97 % des pixels
+    assombris d'un coup, ecart median de -29 niveaux de gris pour un seuil
+    DIFF_THRESHOLD de 28. La detection par difference voit alors la scene
+    entiere comme "changee" et jette le lancer.
+
+    L'auto-exposition mesure toute l'image, pas la ROI : une fenetre
+    lumineuse dans le champ suffit a sous-exposer la cible (cam 2 etait a 37
+    de luminosite moyenne en auto, 113 en manuel).
+
+    Sans entree dans camera_settings.json, on ne touche a rien.
+    """
+    reglage = _reglages().get(str(index))
+    if not reglage or "exposure" not in reglage:
+        return False
+    dev = resolve_device(index)
+    for args in (["auto_exposure=1", "white_balance_automatic=0"],
+                 ["exposure_time_absolute=%d" % reglage["exposure"],
+                  "white_balance_temperature=%d" % WHITE_BALANCE]):
+        subprocess.run(["v4l2-ctl", "-d", dev, "-c", ",".join(args)],
+                       capture_output=True, text=True)
+    return True
 
 
 def usb_port(index):
@@ -104,6 +146,7 @@ def open_camera(index, stable=True, verifier=True):
     cap.set(cv2.CAP_PROP_FRAME_WIDTH, WIDTH)
     cap.set(cv2.CAP_PROP_FRAME_HEIGHT, HEIGHT)
     cap.set(cv2.CAP_PROP_FPS, FPS)
+    fixer_exposition(index)
 
     if not verifier:
         return cap

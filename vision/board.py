@@ -15,6 +15,10 @@ R_TRIPLE_IN  = 99.0
 R_TRIPLE_OUT = 107.0
 R_DOUBLE_IN  = 162.0
 R_DOUBLE_OUT = 170.0
+R_PLAUSIBLE  = 250.0  # au-dela, aucune flechette ne peut se planter :
+                      # 170 mm au double externe, ~225 avec l'anneau de
+                      # recuperation. Une position plus lointaine n'est pas
+                      # un miss, c'est une triangulation aberrante.
 
 R_TRIPLE_MID = (R_TRIPLE_IN + R_TRIPLE_OUT) / 2   # 103 : centre du lit de triple
 R_DOUBLE_MID = (R_DOUBLE_IN + R_DOUBLE_OUT) / 2   # 166 : centre du lit de double

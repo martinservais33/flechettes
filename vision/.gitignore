@@ -17,3 +17,4 @@ calibration_points.json
 calib_backup_*/
 reference_mapping/
 dataset_diag/
+camera_settings.json

@@ -26,7 +26,7 @@ import cv2
 import numpy as np
 from flask import Flask, Response, jsonify, request
 
-from board import (R_BULL, R_DOUBLE_IN, R_DOUBLE_OUT, R_OUTER_BULL,
+from board import (R_BULL, R_DOUBLE_IN, R_DOUBLE_OUT, R_OUTER_BULL, R_PLAUSIBLE,
                    R_TRIPLE_IN, R_TRIPLE_OUT, SECTORS, score_from_point,
                    sector_center_angle)
 from calib_model import fit_camera, ray_from_column, triangulate
@@ -58,7 +58,7 @@ MOTION_PIXELS = 200       # pixels changés vs référence pour déclencher.
                           # ne déclenchaient plus. Ce seuil est solidaire de
                           # la taille de la ROI : le rebaisser si on la réduit
                           # encore, le remonter si on l'élargit.
-MAX_THROW_TICKS = 5       # frames instables max pour un vrai lancer :
+MAX_THROW_TICKS = 12      # frames instables max pour un vrai lancer :
                           # une fléchette plante en 1-2 frames, une main
                           # (récupération, passage) bouge bien plus longtemps
 
@@ -355,7 +355,7 @@ def prune_diag(keep=KEEP_DIAG):
 
 
 def save_diag(kind, ref_frames, frames, ref_grays, grays, per_cam_ref,
-              unstable_ticks, results=None):
+              unstable_ticks, results=None, debut=None):
     """Instrumentation : enregistre ce qui n est PAS retenu comme lancer.
 
     Le dataset des lancers ne garde que les evenements classes "dart" :
@@ -379,6 +379,7 @@ def save_diag(kind, ref_frames, frames, ref_grays, grays, per_cam_ref,
         "stamp": stamp,
         "time": datetime.now().strftime("%H:%M:%S"),
         "unstable_ticks": unstable_ticks,
+        "latence_s": round(time.time() - debut, 2) if debut else None,
         "changed_px": {str(c): per_cam_ref[c] for c in per_cam_ref},
         "areas": {str(c): r[2] for c, r in results.items()},
         "kinds": {str(c): r[0] for c, r in results.items()},
@@ -394,6 +395,8 @@ def detection_loop():
     ref_frames, ref_grays = grab_grays()
     prev_grays = ref_grays
     stable_ticks = 0
+    unstable_ticks = 0
+    debut_mouvement = time.time()
     state["phase"] = "attente"
 
     while True:
@@ -410,6 +413,7 @@ def detection_loop():
                 state["phase"] = "mouvement"
                 stable_ticks = 0
                 unstable_ticks = 0
+                debut_mouvement = time.time()
 
         elif state["phase"] == "mouvement":
             if inter < SETTLE_PIXELS:
@@ -426,7 +430,7 @@ def detection_loop():
             if unstable_ticks > MAX_THROW_TICKS:
                 print(f"mouvement long ({unstable_ticks} frames instables) : ignoré")
                 save_diag("long_movement", ref_frames, frames, ref_grays,
-                          grays, per_cam_ref, unstable_ticks)
+                          grays, per_cam_ref, unstable_ticks, debut=debut_mouvement)
                 if state["game_mode"] and 0 < state["turn_darts"] < 3:
                     game_post("/end_turn")
                 state["turn_darts"] = 0
@@ -442,7 +446,7 @@ def detection_loop():
                       if b is not None]
             if deltas and sum(deltas) / len(deltas) > REMOVAL_DELTA:
                 save_diag("removal", ref_frames, frames, ref_grays, grays,
-                          per_cam_ref, unstable_ticks)
+                          per_cam_ref, unstable_ticks, debut=debut_mouvement)
                 if state["game_mode"] and 0 < state["turn_darts"] < 3:
                     game_post("/end_turn")
                 state["turn_darts"] = 0
@@ -457,9 +461,15 @@ def detection_loop():
             }
             kinds = [r[0] for r in results.values()]
 
-            if "clear" in kinds:
+            # Une seule camera occultee ne doit pas annuler le lancer : pendant
+            # une partie, quelqu'un passe regulierement devant l'une des trois,
+            # et les deux autres voient parfaitement la flechette. On n'ecarte
+            # l'evenement que si au moins DEUX cameras sont saturees — la
+            # triangulation en demande deux de toute facon, donc une camera
+            # perdue reste exploitable.
+            if kinds.count("clear") >= 2:
                 save_diag("clear", ref_frames, frames, ref_grays, grays,
-                          per_cam_ref, unstable_ticks, results)
+                          per_cam_ref, unstable_ticks, results, debut=debut_mouvement)
                 # main / retrait des fléchettes : nouvelle référence, pas d'événement.
                 # En mode jeu, un retrait en milieu de tour (1 ou 2 lancers)
                 # vaut "Valider le tour" ; après 3 lancers le jeu a déjà
@@ -474,6 +484,24 @@ def detection_loop():
             tips = {c: r[1] for c, r in results.items() if r[0] == "dart"}
             if len(tips) >= 2:
                 pred = predict(tips)
+
+                # Position geometriquement impossible : on n'a pas vu une
+                # flechette. Cas mesure le 2026-08-30 : quand une camera est
+                # occultee par le joueur venu chercher ses flechettes, les deux
+                # autres produisent un blob qui triangule a 265 et 377 mm. Avec
+                # seulement deux rayons la coherence vaut 0 par construction,
+                # donc DOUBTFUL_MM ne peut rien voir — c'est la geometrie qui
+                # doit trancher. Envoye au jeu, ce fantome comptait comme un
+                # lancer rate et faisait sauter un tour.
+                if pred and math.hypot(pred["x"], pred["y"]) > R_PLAUSIBLE:
+                    print(f"position aberrante ({pred['x']:.0f}, {pred['y']:.0f}) "
+                          f"— evenement ignore")
+                    save_diag("aberrant", ref_frames, frames, ref_grays, grays,
+                              per_cam_ref, unstable_ticks, results,
+                              debut=debut_mouvement)
+                    ref_frames, ref_grays = frames, grays
+                    state["phase"] = "attente"
+                    continue
                 event = {
                     "id": state["next_id"],
                     "stamp": datetime.now().strftime("%Y%m%d_%H%M%S_") + str(state["next_id"]),
@@ -483,6 +511,9 @@ def detection_loop():
                     "kinds": {str(c): r[0] for c, r in results.items()},
                     "changed_px": {str(c): per_cam_ref[c] for c in per_cam_ref},
                     "unstable_ticks": unstable_ticks,
+                    # secondes entre le declenchement du mouvement et la
+                    # creation de l evenement : la latence percue par le joueur
+                    "latence_s": round(time.time() - debut_mouvement, 2),
                     "prediction": pred,
                     "truth": None,
                 }
