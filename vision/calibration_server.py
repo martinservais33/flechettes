@@ -26,7 +26,8 @@ from flask import Flask, Response, jsonify, request
 
 from board import CALIB_POINTS, score_from_point, sector_center_angle
 from calib_model import fit_camera, ray_from_column, triangulate
-from test_cameras import open_camera
+from test_cameras import (NO_FRAME_TIMEOUT,
+                          REOPEN_SETTLE, open_camera)
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 POINTS_FILE = os.path.join(HERE, "calibration_points.json")
@@ -67,15 +68,43 @@ def upright(frame, cam):
 
 
 def capture_loop(index):
-    cap = open_camera(index)
-    if cap is None:
-        print(f"ERREUR : caméra {index} impossible à ouvrir")
-        return
+    """Capture en continu, en reouvrant la camera tant que necessaire.
+
+    Les cameras UVC sont a acces exclusif : une seule des trois interfaces
+    (flechettes-vision, preview_server, calibration_server) peut les tenir a
+    la fois. Sans reessai, lancer celle-ci pendant qu'une autre tourne tuait
+    les threads a l'ouverture, et l'apercu restait vide meme apres avoir
+    libere les cameras. Meme logique que live_server et preview_server.
+    """
+    cap = None
+    derniere_frame = time.time()
     while True:
+        if cap is None:
+            cap = open_camera(index)
+            if cap is None:
+                print(f"camera {index} pas encore prete - nouvel essai dans 2 s...")
+                time.sleep(2)
+                continue
+            print(f"camera {index} ouverte")
+            derniere_frame = time.time()
+
         ok, frame = cap.read()
-        if ok:
+        if ok and frame is not None:
             with _lock:
                 _frames[index] = frame
+            derniere_frame = time.time()
+            continue
+
+        # Chien de garde en TEMPS, pas en nombre d'essais : une camera qui
+        # s'ouvre sans streamer fait bloquer read() jusqu'au timeout uvcvideo.
+        if time.time() - derniere_frame > NO_FRAME_TIMEOUT:
+            print(f"camera {index} : aucune frame depuis {NO_FRAME_TIMEOUT:.0f} s, reouverture...")
+            try:
+                cap.release()
+            except Exception:
+                pass
+            cap = None
+            time.sleep(REOPEN_SETTLE)
         else:
             time.sleep(0.05)
 

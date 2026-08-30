@@ -32,7 +32,8 @@ from board import (R_BULL, R_DOUBLE_IN, R_DOUBLE_OUT, R_OUTER_BULL,
 from calib_model import fit_camera, ray_from_column, triangulate
 from detector import (REMOVAL_DELTA, SETTLE_PIXELS, brightening,
                       changed_pixels, extract_impact, preprocess)
-from test_cameras import open_camera
+from test_cameras import (NO_FRAME_TIMEOUT,
+                          REOPEN_SETTLE, open_camera)
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 DATASET_DIR = os.path.join(HERE, "dataset")
@@ -148,27 +149,37 @@ def _open_camera_retry(index):
 
 
 def capture_loop(index):
-    cap = _open_camera_retry(index)
-    fails = 0
+    cap = None
+    derniere_frame = time.time()
     while True:
+        if cap is None:
+            cap = open_camera(index)
+            if cap is None:
+                print(f"camera {index} pas encore prete - nouvel essai dans 2 s...")
+                time.sleep(2)
+                continue
+            print(f"camera {index} ouverte")
+            derniere_frame = time.time()
+
         ok, frame = cap.read()
-        if ok:
+        if ok and frame is not None:
             with _lock:
                 _frames[index] = upright(frame, index)
-            fails = 0
-        else:
-            fails += 1
-            time.sleep(0.05)
-            # caméra débranchée / plantée en cours de route : on la rouvre
-            if fails >= 100:
-                print(f"caméra {index} : lectures en échec, réouverture…")
-                try:
-                    cap.release()
-                except Exception:
-                    pass
-                cap = _open_camera_retry(index)
-                fails = 0
+            derniere_frame = time.time()
+            continue
 
+        # Chien de garde en TEMPS, pas en nombre d'essais : une camera qui
+        # s'ouvre sans streamer fait bloquer read() jusqu'au timeout uvcvideo.
+        if time.time() - derniere_frame > NO_FRAME_TIMEOUT:
+            print(f"camera {index} : aucune frame depuis {NO_FRAME_TIMEOUT:.0f} s, reouverture...")
+            try:
+                cap.release()
+            except Exception:
+                pass
+            cap = None
+            time.sleep(REOPEN_SETTLE)
+        else:
+            time.sleep(0.05)
 
 def grab_grays():
     with _lock:

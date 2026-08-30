@@ -15,6 +15,7 @@ et sauvegarde un snapshot par caméra dans vision/snapshots/ pour vérifier
 l'image (netteté, orientation, champ de vision).
 """
 
+import fcntl
 import glob
 import os
 import sys
@@ -24,6 +25,19 @@ import time
 import cv2
 
 WIDTH, HEIGHT, FPS = 640, 480, 30
+NO_FRAME_TIMEOUT = 4.0  # secondes sans frame avant de forcer une reouverture,
+                        # quand read() rend False (camera debranchee ou plantee).
+                        # Compte du TEMPS et non des essais : le nombre de lectures
+                        # ratees par seconde depend du mode d'echec.
+                        # Ne couvre PAS le cas d'une camera qui s'ouvre sans
+                        # streamer : read() y bloque sans jamais rendre la main, et
+                        # cette boucle n'est plus atteinte. Ce cas est traite a
+                        # l'ouverture, par la verification de premiere frame dans
+                        # open_camera().
+REOPEN_SETTLE = 1.5     # pause apres release() avant de rouvrir.
+USBDEVFS_RESET = ord('U') << 8 | 20
+FIRST_FRAME_TIMEOUT = 3.0  # s d'attente de la premiere image apres ouverture
+RESET_SETTLE = 1.5         # s apres un reset USB avant de retenter
 TEST_DURATION = 10  # secondes
 SNAPSHOT_DIR = os.path.join(os.path.dirname(__file__), "snapshots")
 
@@ -41,7 +55,46 @@ def resolve_device(index):
     return stable if os.path.exists(stable) else f"/dev/video{index}"
 
 
-def open_camera(index, stable=True):
+def usb_port(index):
+    """Port USB physique (ex "1-1.3") derriere la camera logique `index`."""
+    node = os.path.realpath(resolve_device(index))
+    link = os.path.realpath("/sys/class/video4linux/%s/device"
+                            % os.path.basename(node))
+    return os.path.basename(link).split(":")[0]
+
+
+def usb_reset(index):
+    """Reset materiel du peripherique USB, via ioctl USBDEVFS_RESET.
+
+    Mesure du 2026-08-29 : la camera du port 1-1.3 s'ouvre sans jamais
+    streamer une fois sur cinq (12/15), les deux autres jamais (15/15).
+    Un reset ramene a 15/15. Le reset debloque aussi un read() en cours,
+    qui sinon attend indefiniment sur une camera muette.
+
+    Demande l'acces en ecriture a /dev/bus/usb/... : voir la regle
+    99-flechettes-cams.rules qui le donne au groupe video.
+    """
+    base = "/sys/bus/usb/devices/%s" % usb_port(index)
+    with open(base + "/busnum") as f:
+        bus = int(f.read())
+    with open(base + "/devnum") as f:
+        dev = int(f.read())
+    fd = os.open("/dev/bus/usb/%03d/%03d" % (bus, dev), os.O_WRONLY)
+    try:
+        fcntl.ioctl(fd, USBDEVFS_RESET, 0)
+    finally:
+        os.close(fd)
+    time.sleep(RESET_SETTLE)
+
+
+def open_camera(index, stable=True, verifier=True):
+    """Ouvre la camera et, si `verifier`, s'assure qu'elle streame vraiment.
+
+    Une camera peut s'ouvrir sans jamais delivrer d'image : read() bloque
+    alors indefiniment, et aucun compteur d'echecs ne se declenche. On lit
+    donc la premiere frame dans un thread borne dans le temps ; en cas
+    d'echec on reset le peripherique et on rend None, l'appelant reessaiera.
+    """
     device = resolve_device(index) if stable else f"/dev/video{index}"
     cap = cv2.VideoCapture(device, cv2.CAP_V4L2)
     if not cap.isOpened():
@@ -51,7 +104,33 @@ def open_camera(index, stable=True):
     cap.set(cv2.CAP_PROP_FRAME_WIDTH, WIDTH)
     cap.set(cv2.CAP_PROP_FRAME_HEIGHT, HEIGHT)
     cap.set(cv2.CAP_PROP_FPS, FPS)
-    return cap
+
+    if not verifier:
+        return cap
+
+    resultat = {}
+
+    def premiere_frame():
+        ok, frame = cap.read()
+        resultat["ok"] = bool(ok) and frame is not None
+
+    th = threading.Thread(target=premiere_frame, daemon=True)
+    th.start()
+    th.join(FIRST_FRAME_TIMEOUT)
+    if resultat.get("ok"):
+        return cap
+
+    # Camera muette. Le reset fera echouer le read() bloque, ce qui laisse
+    # le thread se terminer au lieu de rester coince pour toujours.
+    try:
+        usb_reset(index)
+    except (OSError, IOError) as e:
+        print(f"camera {index} : reset USB impossible ({e})")
+    try:
+        cap.release()
+    except Exception:
+        pass
+    return None
 
 
 def scan():

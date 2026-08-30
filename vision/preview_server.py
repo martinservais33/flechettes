@@ -12,7 +12,8 @@ from datetime import datetime
 import cv2
 from flask import Flask, Response, jsonify
 
-from test_cameras import FPS, HEIGHT, WIDTH, open_camera, resolve_device
+from test_cameras import (FPS, HEIGHT, NO_FRAME_TIMEOUT, REOPEN_SETTLE,
+                          WIDTH, open_camera, resolve_device)
 
 SNAPSHOT_DIR = os.path.join(os.path.dirname(__file__), "snapshots")
 
@@ -56,7 +57,7 @@ def capture_loop(index):
     Meme logique que live_server.capture_loop.
     """
     cap = None
-    fails = 0
+    derniere_frame = time.time()
     while True:
         if cap is None:
             cap = safe_open_camera(index)
@@ -65,24 +66,27 @@ def capture_loop(index):
                 time.sleep(2)
                 continue
             print(f"camera {index} ouverte")
-            fails = 0
+            derniere_frame = time.time()
 
         ok, frame = cap.read()
-        if ok:
+        if ok and frame is not None:
             with _lock:
                 _frames[index] = frame
-            fails = 0
-        else:
-            fails += 1
-            time.sleep(0.05)
-            if fails >= 100:
-                print(f"camera {index} : lectures en echec, reouverture...")
-                try:
-                    cap.release()
-                except Exception:
-                    pass
-                cap = None
+            derniere_frame = time.time()
+            continue
 
+        # Chien de garde en TEMPS, pas en nombre d'essais : une camera qui
+        # s'ouvre sans streamer fait bloquer read() jusqu'au timeout uvcvideo.
+        if time.time() - derniere_frame > NO_FRAME_TIMEOUT:
+            print(f"camera {index} : aucune frame depuis {NO_FRAME_TIMEOUT:.0f} s, reouverture...")
+            try:
+                cap.release()
+            except Exception:
+                pass
+            cap = None
+            time.sleep(REOPEN_SETTLE)
+        else:
+            time.sleep(0.05)
 
 def mjpeg_generator(index):
     while True:
